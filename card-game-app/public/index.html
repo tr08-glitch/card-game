@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>混沌</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="screen-title" class="screen">
+  <h1>混沌</h1>
+  <input id="nameInput" placeholder="プレイヤー名(1〜10文字)" maxlength="10" />
+  <div class="menu">
+    <button id="btnCreateRoom">ルーム作成</button>
+    <button id="btnJoinRoom">ルーム参加</button>
+  </div>
+  <div id="joinBox" class="hidden">
+    <input id="roomIdInput" placeholder="ルームID(4桁)" maxlength="4" />
+    <button id="btnDoJoin">参加する</button>
+  </div>
+  <p id="titleError" class="error"></p>
+</div>
+
+<div id="screen-lobby" class="screen hidden">
+  <h2>ルーム: <span id="lobbyRoomId"></span></h2>
+  <div id="hostControls" class="hidden">
+    <button id="btnStartGame">ゲーム開始</button>
+    <label>ターン制 <input type="checkbox" id="chkTurnLimit"/></label>
+    <input type="number" id="turnLimitNum" value="20" style="width:4em" />
+    <label>チャット <input type="checkbox" id="chkChat" checked/></label>
+    <label>敵ライフ表示 <input type="checkbox" id="chkShowLife" checked/></label>
+    <label>敵マナ表示 <input type="checkbox" id="chkShowMana" checked/></label>
+    <button id="btnApplySettings">設定を適用</button>
+  </div>
+  <button id="btnLeaveLobby">ルームから抜ける</button>
+  <ul id="playerList"></ul>
+  <div id="lobbyChat" class="chatBox"></div>
+  <input id="lobbyChatInput" placeholder="チャット" />
+  <button id="btnLobbyChatSend">送信</button>
+</div>
+
+<div id="screen-game" class="screen hidden">
+  <div id="topBar">
+    <div>山札: <span id="deckCount"></span> / ターン: <span id="turnInfo"></span></div>
+    <div>
+      <button id="btnSurrender">降参</button>
+      <button id="btnLeaveGame">退室</button>
+    </div>
+  </div>
+  <div id="opponents"></div>
+  <div id="selfInfo">
+    <span>自分: <span id="selfName"></span></span>
+    <span>♡<span id="selfLife"></span></span>
+    <span>★<span id="selfMana"></span></span>
+  </div>
+  <div id="myField"></div>
+  <div id="myHand"></div>
+  <div id="gameLog"></div>
+  <div id="gameChat" class="chatBox"></div>
+  <select id="chatTarget"><option value="all">全体</option></select>
+  <input id="gameChatInput" placeholder="チャット" />
+  <button id="btnGameChatSend">送信</button>
+</div>
+
+<div id="cardPopup" class="hidden">
+  <div id="cardPopupInner">
+    <div id="popupCardName"></div>
+    <div id="popupCardCost"></div>
+    <select id="popupTarget"></select>
+    <input id="popupCost" type="number" min="1" max="7" placeholder="コスト(1〜7)" class="hidden" />
+    <div>
+      <button id="btnPlayFaceUp">表向きに置く</button>
+      <button id="btnPlayFaceDown">裏向きに置く</button>
+      <button id="btnCancelPlay">キャンセル</button>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="client.js"></script>
+</body>
+</html>
