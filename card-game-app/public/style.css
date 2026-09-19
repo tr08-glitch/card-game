@@ -1,24 +1,260 @@
-body { font-family: sans-serif; background:#222; color:#eee; margin:0; padding:1em; }
-.hidden { display:none !important; }
-.screen { max-width: 900px; margin: 0 auto; }
-button { padding:0.5em 1em; margin:0.2em; cursor:pointer; }
-input, select { padding:0.4em; margin:0.2em; }
-.menu { display:flex; gap:0.5em; }
-.error { color: #ff8080; }
-#playerList li { padding:0.3em; }
-.chatBox { height:120px; overflow-y:auto; background:#111; padding:0.5em; margin:0.5em 0; border:1px solid #444; }
-.chatBox .all { color:#fff; }
-.chatBox .private { color:#6cf; }
-#opponents { display:flex; gap:1em; flex-wrap:wrap; margin-bottom:1em; }
-.oppBox { border:1px solid #555; padding:0.5em; min-width:120px; cursor:pointer; }
-.oppBox.dead { opacity:0.4; }
-#myField { display:flex; gap:0.5em; min-height:60px; border:1px dashed #555; padding:0.5em; margin:0.5em 0; }
-.fieldCard { border:1px solid #888; padding:0.3em; width:70px; text-align:center; background:#333; }
-.fieldCard.down { background:#553; }
-#myHand { display:flex; gap:0.5em; margin:0.5em 0; }
-.handCard { border:1px solid #8cf; padding:0.5em; width:90px; text-align:center; cursor:pointer; background:#334; }
-.handCard.selected { outline:3px solid gold; }
-#topBar { display:flex; justify-content:space-between; }
-#cardPopup { position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.8); display:flex; align-items:center; justify-content:center; }
-#cardPopupInner { background:#222; border:1px solid #888; padding:1.5em; min-width:260px; }
-#gameLog { font-size:0.85em; color:#aaa; max-height:80px; overflow-y:auto; margin:0.5em 0; }
+:root {
+  --bg-deep: #12081c;
+  --bg-panel: #1e1130;
+  --bg-panel2: #291a42;
+  --border-gold: #c9a15a;
+  --text-main: #f0e6d2;
+  --text-dim: #a99bc4;
+  --accent-red: #d9445f;
+  --accent-gold: #e0b95a;
+  --accent-purple: #7c4dd6;
+  --black-card: #2a1a1a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  font-family: "Hiragino Mincho ProN", "Yu Mincho", serif;
+  background: radial-gradient(ellipse at 50% 0%, #2a1746 0%, var(--bg-deep) 65%);
+  color: var(--text-main);
+  margin: 0;
+  min-height: 100vh;
+  padding: 0;
+}
+
+.hidden { display: none !important; }
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  background: linear-gradient(180deg, #3a2456, #241536);
+  color: var(--text-main);
+  border: 1px solid var(--border-gold);
+  border-radius: 6px;
+  padding: 0.5em 1em;
+  transition: filter 0.15s, transform 0.1s;
+}
+button:hover { filter: brightness(1.2); }
+button:active { transform: scale(0.97); }
+
+input, select {
+  font-family: inherit;
+  background: #150a22;
+  color: var(--text-main);
+  border: 1px solid #5a4478;
+  border-radius: 4px;
+  padding: 0.4em 0.6em;
+}
+
+.screen { position: relative; min-height: 100vh; padding: 1.5em; }
+
+/* ===== 共通パーツ ===== */
+.iconBtn {
+  width: 2.6em; height: 2.6em; border-radius: 50%;
+  font-size: 1.2em; display: flex; align-items: center; justify-content: center; padding: 0;
+}
+.cornerTopRight { position: absolute; top: 1.2em; right: 1.2em; }
+
+.pillBtn {
+  border-radius: 999px; padding: 0.5em 1.4em; font-size: 0.9em;
+}
+.pillBtnWarn {
+  border-radius: 999px; padding: 0.5em 1.2em; font-size: 0.9em;
+  border-color: var(--accent-red); color: #ffd7dc;
+}
+
+.bigBtn {
+  width: 100%; padding: 0.9em; font-size: 1.1em; border-radius: 8px;
+  background: linear-gradient(180deg, var(--accent-gold), #a67c2a); color: #241536; font-weight: bold;
+  border-color: var(--accent-gold);
+}
+
+.fieldLabel { color: var(--accent-gold); font-size: 1.1em; margin-bottom: 0.4em; letter-spacing: 0.05em; }
+.fieldLabelSmall { color: var(--text-dim); font-size: 0.8em; margin: 0.6em 0 0.2em; }
+
+.overlay {
+  position: fixed; inset: 0; background: rgba(5, 2, 12, 0.82);
+  display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1em;
+}
+.overlayPanel {
+  background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel2));
+  border: 1px solid var(--border-gold);
+  border-radius: 12px;
+  padding: 1.6em;
+  min-width: 280px;
+  max-width: 90vw;
+  max-height: 88vh;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 0 40px rgba(124, 77, 214, 0.35);
+}
+.overlayPanel.wide { width: 600px; max-width: 95vw; }
+.closeX {
+  position: absolute; top: 0.6em; right: 0.6em; width: 2em; height: 2em;
+  border-radius: 50%; padding: 0; line-height: 1;
+}
+
+.chatBox {
+  height: 140px; overflow-y: auto; background: #0d0616;
+  border: 1px solid #4a3766; border-radius: 6px; padding: 0.5em; font-size: 0.9em;
+}
+.chatBox .all { color: #fff; }
+.chatBox .private { color: #7fd4ff; }
+.chatRow { display: flex; gap: 0.4em; margin: 0.5em 0; align-items: stretch; }
+.chatInput { flex: 1; }
+.chatTargetSelect { min-width: 5.5em; }
+.sendBtn { padding: 0.4em 0.8em; }
+
+.error { color: #ff8a9a; margin-top: 1em; }
+
+/* ===== タイトル画面 ===== */
+.titleLayout {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 1.2em;
+  max-width: 420px; margin: 3em 0 0 2em;
+}
+.gameTitle {
+  font-size: 3.4em; margin: 0; letter-spacing: 0.15em;
+  background: linear-gradient(180deg, #f4d98a, #8a5bd6 90%);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: 0 0 30px rgba(124, 77, 214, 0.6);
+}
+.nameInput { width: 100%; padding: 0.6em 0.8em; font-size: 1em; }
+.titleMenu { display: flex; flex-direction: column; gap: 0.8em; width: 220px; margin-top: 1em; }
+.menuBtn { padding: 0.8em; font-size: 1.05em; border-radius: 8px; }
+.creditsBtn {
+  position: absolute; right: 2em; bottom: 1.6em; border-radius: 999px; opacity: 0.8;
+}
+
+/* ルーム参加のテンキー */
+.roomIdDisplayBox input {
+  width: 100%; font-size: 1.6em; text-align: center; letter-spacing: 0.4em; padding: 0.4em;
+}
+.keypad {
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5em; margin: 1em 0;
+}
+.keypad button { padding: 0.8em; font-size: 1.1em; }
+.joinButtons { display: flex; gap: 0.6em; justify-content: flex-end; margin-top: 0.8em; flex-wrap: wrap; }
+
+/* ===== ロビー画面 ===== */
+.lobbyTopRight { position: absolute; top: 1.2em; right: 1.2em; display: flex; gap: 0.6em; align-items: center; }
+.lobbyGrid { display: grid; grid-template-columns: 300px 1fr; gap: 2em; margin-top: 4em; }
+.lobbyLeft, .lobbyRight { display: flex; flex-direction: column; gap: 0.6em; }
+.roomIdBox {
+  font-size: 2em; letter-spacing: 0.3em; text-align: center; padding: 0.3em;
+  border: 1px solid var(--border-gold); border-radius: 8px; background: #150a22;
+}
+.hostControlsRow { display: flex; gap: 0.6em; margin: 0.6em 0; flex-wrap: wrap; }
+.lobbyExitRow { display: flex; gap: 0.6em; margin-top: 1em; flex-wrap: wrap; }
+.playerList { list-style: none; margin: 0; padding: 0; border: 1px solid #4a3766; border-radius: 6px; min-height: 160px; }
+.playerList li { padding: 0.6em 0.8em; border-bottom: 1px solid #2c1e46; }
+.playerList li:last-child { border-bottom: none; }
+.playerList li.host::after { content: " (GM)"; color: var(--accent-gold); font-size: 0.85em; }
+
+/* カード枚数一覧 */
+.cardCountList { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.4em 1.2em; margin: 0.6em 0; }
+.cardCountRow { display: flex; align-items: center; justify-content: space-between; gap: 0.6em; font-size: 0.9em; }
+.cardCountRow input { width: 3.5em; text-align: center; }
+.secretToggleRow { display: block; margin: 0.6em 0; }
+
+.settingsRow { display: flex; align-items: center; justify-content: space-between; gap: 1em; margin: 0.7em 0; min-width: 260px; }
+.settingsRow input[type="number"] { width: 4.5em; }
+
+/* ===== ゲーム画面 ===== */
+#table { position: relative; padding-top: 5.5em; padding-bottom: 1em; }
+.topLeftInfo {
+  position: absolute; top: 0; left: 0; font-size: 0.85em; color: var(--text-dim);
+  background: #150a22cc; border: 1px solid #4a3766; border-radius: 8px; padding: 0.5em 0.9em;
+}
+.topLeftInfo .bigNum { color: var(--accent-gold); font-size: 1.3em; line-height: 1.1; margin-bottom: 0.3em; }
+.topRightButtons { position: absolute; top: 0; right: 0; display: flex; gap: 0.5em; }
+
+.opponentsRow { display: flex; gap: 1em; flex-wrap: wrap; justify-content: center; margin-bottom: 1.2em; }
+.oppBox {
+  border: 1px solid #5a4478; border-radius: 10px; padding: 0.7em 1em; min-width: 140px; text-align: center;
+  background: linear-gradient(180deg, #241536, #170c26); cursor: pointer;
+}
+.oppBox:hover { border-color: var(--accent-gold); }
+.oppBox.dead { opacity: 0.35; filter: grayscale(0.6); cursor: default; }
+.oppBox.currentTurn { border-color: var(--accent-gold); box-shadow: 0 0 14px rgba(224, 185, 90, 0.5); }
+.oppName { font-size: 0.95em; margin-bottom: 0.3em; }
+.oppStats { display: flex; gap: 0.7em; justify-content: center; font-size: 0.95em; }
+.lifeTag { color: var(--accent-red); }
+.manaTag { color: var(--accent-gold); }
+.oppHandCount { font-size: 0.8em; color: var(--text-dim); margin-top: 0.3em; }
+.oppFieldMini { font-size: 0.75em; color: var(--text-dim); margin-top: 0.2em; }
+
+.drawnCardArea {
+  border: 1px dashed var(--accent-gold); border-radius: 10px; padding: 0.6em; margin: 0.6em auto;
+  max-width: 200px; text-align: center;
+}
+
+.myField, .oppFieldZoomCards {
+  display: flex; gap: 0.7em; flex-wrap: wrap; min-height: 90px;
+  border: 1px dashed #4a3766; border-radius: 10px; padding: 0.7em; justify-content: center;
+}
+
+.card {
+  width: 84px; height: 118px; border-radius: 8px; border: 1px solid var(--border-gold);
+  background: linear-gradient(160deg, #3a2456, #1c1130);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 0.75em; text-align: center; padding: 0.4em; position: relative;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.5);
+}
+.card.black { border-color: #6b3f3f; background: linear-gradient(160deg, #3a1f22, #1a0e10); }
+.card.down {
+  background: repeating-linear-gradient(45deg, #241536, #241536 6px, #2f1c46 6px, #2f1c46 12px);
+  color: transparent;
+}
+.card.misfired { opacity: 0.55; }
+.card .cardNo { position: absolute; top: 3px; left: 5px; font-size: 0.85em; color: var(--accent-gold); }
+.card .cardCost { position: absolute; top: 3px; right: 5px; font-size: 0.85em; color: var(--accent-red); }
+.card .cardNameSmall { margin-top: 0.8em; font-weight: bold; }
+
+.selfInfo { display: flex; gap: 1em; align-items: center; justify-content: center; margin: 0.6em 0; font-size: 1.1em; }
+
+.myHand { display: flex; gap: 0.8em; justify-content: center; min-height: 128px; }
+.handCard { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
+.handCard:hover { transform: translateY(-4px); }
+.handCard.selected {
+  box-shadow: 0 0 18px 4px var(--accent-gold);
+  border-color: var(--accent-gold);
+  transform: translateY(-6px);
+}
+.myHand .handCard.disabled { cursor: default; opacity: 0.6; }
+
+.gameLog { font-size: 0.8em; color: var(--text-dim); max-height: 70px; overflow-y: auto; margin: 0.6em 0; text-align: center; }
+
+.chatToggleBtn { position: fixed; right: 1.2em; bottom: 1.2em; border-radius: 999px; z-index: 40; }
+.chatPanel {
+  position: fixed; right: 1.2em; bottom: 4.2em; width: 320px; max-width: 90vw;
+  background: var(--bg-panel); border: 1px solid var(--border-gold); border-radius: 10px; padding: 0.7em; z-index: 40;
+}
+
+/* ===== カードポップアップ ===== */
+.cardPopupInner { background: transparent; display: flex; flex-direction: column; align-items: center; gap: 1em; }
+.popupHandStrip { display: flex; gap: 0.6em; }
+.popupCardDisplay { display: flex; gap: 1.2em; align-items: center; flex-wrap: wrap; justify-content: center; }
+.cardVisualBig {
+  width: 220px; min-height: 300px; border-radius: 14px; border: 2px solid var(--border-gold);
+  background: linear-gradient(160deg, #3a2456, #1c1130);
+  padding: 1em; position: relative; display: flex; flex-direction: column; align-items: center;
+  box-shadow: 0 8px 30px rgba(0,0,0,0.6);
+}
+.cardCostBadge {
+  position: absolute; top: 0.6em; right: 0.6em; background: var(--accent-red); color: #fff;
+  border-radius: 50%; width: 2.2em; height: 2.2em; display: flex; align-items: center; justify-content: center;
+  font-weight: bold;
+}
+.cardIllust { font-size: 3.5em; margin: 1em 0 0.4em; opacity: 0.8; }
+.cardName { font-size: 1.3em; font-weight: bold; color: var(--accent-gold); margin-bottom: 0.6em; }
+.cardEffectText { font-size: 0.85em; color: var(--text-main); text-align: center; line-height: 1.5; }
+.popupSideControls { display: flex; flex-direction: column; gap: 0.7em; min-width: 200px; }
+.popupActionBtn { padding: 0.7em; border-radius: 8px; }
+.popupActionBtn.cancel { border-color: #7a6a90; color: var(--text-dim); }
+
+.ruleText { font-size: 0.85em; line-height: 1.7; white-space: pre-wrap; max-height: 55vh; overflow-y: auto; }
+
+@media (max-width: 720px) {
+  .lobbyGrid { grid-template-columns: 1fr; }
+  .titleLayout { margin: 2em 1em; }
+}

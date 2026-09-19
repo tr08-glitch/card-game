@@ -8,72 +8,203 @@
 </head>
 <body>
 
+<!-- ===== タイトル画面 ===== -->
 <div id="screen-title" class="screen">
-  <h1>混沌</h1>
-  <input id="nameInput" placeholder="プレイヤー名(1〜10文字)" maxlength="10" />
-  <div class="menu">
-    <button id="btnCreateRoom">ルーム作成</button>
-    <button id="btnJoinRoom">ルーム参加</button>
+  <button id="btnSettingsIcon" class="iconBtn cornerTopRight" title="設定">⚙</button>
+
+  <div class="titleLayout">
+    <h1 class="gameTitle">混沌</h1>
+    <input id="nameInput" class="nameInput" placeholder="プレイヤー名(1〜10文字)" maxlength="10" />
+
+    <div class="titleMenu">
+      <button id="btnAiBattle" class="menuBtn">AI戦</button>
+      <button id="btnCreateRoom" class="menuBtn">ルーム作成</button>
+      <button id="btnJoinRoom" class="menuBtn">ルーム参加</button>
+    </div>
   </div>
-  <div id="joinBox" class="hidden">
-    <input id="roomIdInput" placeholder="ルームID(4桁)" maxlength="4" />
-    <button id="btnDoJoin">参加する</button>
+
+  <button id="btnCredits" class="creditsBtn">クレジット</button>
+
+  <!-- ルーム参加ポップアップ -->
+  <div id="joinOverlay" class="overlay hidden">
+    <div class="overlayPanel">
+      <button id="btnCloseJoin" class="closeX">×</button>
+      <div class="roomIdDisplayBox"><input id="roomIdInput" maxlength="4" placeholder="0000" /></div>
+      <div class="keypad" id="keypad"></div>
+      <div class="joinButtons">
+        <button id="btnClearRoomId">クリア</button>
+        <button id="btnDoJoin">決定</button>
+      </div>
+    </div>
   </div>
+
+  <!-- AI戦 難易度選択 -->
+  <div id="aiOverlay" class="overlay hidden">
+    <div class="overlayPanel">
+      <button id="btnCloseAi" class="closeX">×</button>
+      <p>AIの強さ</p>
+      <input id="aiDifficulty" type="range" min="1" max="10" value="5" />
+      <div><span id="aiDifficultyLabel">5</span> / 10</div>
+      <button id="btnStartAi">対戦開始(準備中)</button>
+    </div>
+  </div>
+
   <p id="titleError" class="error"></p>
 </div>
 
+<!-- ===== ルーム(ロビー)画面 ===== -->
 <div id="screen-lobby" class="screen hidden">
-  <h2>ルーム: <span id="lobbyRoomId"></span></h2>
-  <div id="hostControls" class="hidden">
-    <button id="btnStartGame">ゲーム開始</button>
-    <label>ターン制 <input type="checkbox" id="chkTurnLimit"/></label>
-    <input type="number" id="turnLimitNum" value="20" style="width:4em" />
-    <label>チャット <input type="checkbox" id="chkChat" checked/></label>
-    <label>敵ライフ表示 <input type="checkbox" id="chkShowLife" checked/></label>
-    <label>敵マナ表示 <input type="checkbox" id="chkShowMana" checked/></label>
-    <button id="btnApplySettings">設定を適用</button>
+  <div class="lobbyTopRight">
+    <button id="btnShowRules" class="pillBtn">ルール</button>
+    <button id="btnLobbySettingsIcon" class="iconBtn" title="設定">⚙</button>
   </div>
-  <button id="btnLeaveLobby">ルームから抜ける</button>
-  <ul id="playerList"></ul>
-  <div id="lobbyChat" class="chatBox"></div>
-  <input id="lobbyChatInput" placeholder="チャット" />
-  <button id="btnLobbyChatSend">送信</button>
+
+  <div class="lobbyGrid">
+    <div class="lobbyLeft">
+      <div class="fieldLabel">ルームID</div>
+      <div class="roomIdBox" id="lobbyRoomId"></div>
+
+      <div id="hostControls" class="hidden hostControlsRow">
+        <button id="btnCardCount" class="pillBtn">カード枚数</button>
+        <button id="btnGameSettings" class="pillBtn">ゲーム設定</button>
+      </div>
+
+      <button id="btnStartGame" class="bigBtn hidden">ゲーム開始</button>
+
+      <div class="lobbyExitRow">
+        <button id="btnLeaveLobby" class="pillBtnWarn">ルームから抜ける</button>
+        <button id="btnDisbandRoom" class="pillBtnWarn hidden">ルーム解散</button>
+      </div>
+    </div>
+
+    <div class="lobbyRight">
+      <div class="fieldLabel">参加のプレイヤー</div>
+      <ul id="playerList" class="playerList"></ul>
+
+      <div class="chatRow">
+        <select id="lobbyChatTarget" class="chatTargetSelect"><option value="all">全体</option></select>
+        <input id="lobbyChatInput" class="chatInput" placeholder="メッセージ" />
+        <button id="btnLobbyChatSend" class="sendBtn">▶</button>
+      </div>
+      <div id="lobbyChat" class="chatBox"></div>
+    </div>
+  </div>
 </div>
 
+<!-- ===== カード枚数設定 ===== -->
+<div id="cardCountOverlay" class="overlay hidden">
+  <div class="overlayPanel wide">
+    <div class="fieldLabel">カード一覧</div>
+    <div id="cardCountList" class="cardCountList"></div>
+    <label class="secretToggleRow"><input type="checkbox" id="chkSecretCards" checked /> シークレットカードの有無</label>
+    <div class="joinButtons">
+      <button id="btnCardCountCancel">キャンセル</button>
+      <button id="btnCardCountDefault">デフォルト</button>
+      <button id="btnCardCountConfirm">確定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ゲーム設定 ===== -->
+<div id="gameSettingsOverlay" class="overlay hidden">
+  <div class="overlayPanel">
+    <div class="settingsRow"><span>ターン制</span><input type="checkbox" id="chkTurnLimit" /></div>
+    <div class="settingsRow"><span>ターン数</span><input type="number" id="turnLimitNum" value="20" /></div>
+    <div class="settingsRow"><span>ゲーム中のチャット</span><input type="checkbox" id="chkChat" checked /></div>
+    <div class="settingsRow"><span>敵ライフの表示</span><input type="checkbox" id="chkShowLife" checked /></div>
+    <div class="settingsRow"><span>敵マナの表示</span><input type="checkbox" id="chkShowMana" checked /></div>
+    <div class="joinButtons">
+      <button id="btnGameSettingsCancel">キャンセル</button>
+      <button id="btnGameSettingsDefault">デフォルト</button>
+      <button id="btnApplySettings">確定</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ゲーム画面 ===== -->
 <div id="screen-game" class="screen hidden">
-  <div id="topBar">
-    <div>山札: <span id="deckCount"></span> / ターン: <span id="turnInfo"></span></div>
-    <div>
-      <button id="btnSurrender">降参</button>
-      <button id="btnLeaveGame">退室</button>
+  <div id="table">
+    <div id="topLeftInfo" class="topLeftInfo">
+      <div>山札の枚数</div>
+      <div class="bigNum" id="deckCount">-</div>
+      <div>残りターン</div>
+      <div class="bigNum" id="turnInfo">∞</div>
+    </div>
+
+    <div class="topRightButtons">
+      <button id="btnSurrender" class="pillBtnWarn">降参</button>
+      <button id="btnLeaveGame" class="pillBtnWarn">退室</button>
+    </div>
+
+    <div id="opponents" class="opponentsRow"></div>
+
+    <div id="drawnCardArea" class="drawnCardArea hidden">
+      <div class="fieldLabelSmall">自分のターンに引いてきた手札</div>
+      <div id="drawnCard"></div>
+    </div>
+
+    <div class="fieldLabelSmall">自身の場</div>
+    <div id="myField" class="myField"></div>
+
+    <div id="selfInfo" class="selfInfo">
+      <span id="selfName">自分</span>
+      <span class="lifeTag">♡<span id="selfLife">-</span></span>
+      <span class="manaTag">★<span id="selfMana">-</span></span>
+    </div>
+
+    <div class="fieldLabelSmall">自身の手札</div>
+    <div id="myHand" class="myHand"></div>
+  </div>
+
+  <div id="gameLog" class="gameLog"></div>
+
+  <button id="btnToggleChat" class="chatToggleBtn">表示</button>
+  <div id="chatPanel" class="chatPanel hidden">
+    <div id="gameChat" class="chatBox"></div>
+    <div class="chatRow">
+      <select id="chatTarget" class="chatTargetSelect"><option value="all">全体</option></select>
+      <input id="gameChatInput" class="chatInput" placeholder="メッセージ" />
+      <button id="btnGameChatSend" class="sendBtn">▶</button>
     </div>
   </div>
-  <div id="opponents"></div>
-  <div id="selfInfo">
-    <span>自分: <span id="selfName"></span></span>
-    <span>♡<span id="selfLife"></span></span>
-    <span>★<span id="selfMana"></span></span>
-  </div>
-  <div id="myField"></div>
-  <div id="myHand"></div>
-  <div id="gameLog"></div>
-  <div id="gameChat" class="chatBox"></div>
-  <select id="chatTarget"><option value="all">全体</option></select>
-  <input id="gameChatInput" placeholder="チャット" />
-  <button id="btnGameChatSend">送信</button>
 </div>
 
-<div id="cardPopup" class="hidden">
-  <div id="cardPopupInner">
-    <div id="popupCardName"></div>
-    <div id="popupCardCost"></div>
-    <select id="popupTarget"></select>
-    <input id="popupCost" type="number" min="1" max="7" placeholder="コスト(1〜7)" class="hidden" />
-    <div>
-      <button id="btnPlayFaceUp">表向きに置く</button>
-      <button id="btnPlayFaceDown">裏向きに置く</button>
-      <button id="btnCancelPlay">キャンセル</button>
+<!-- ===== 他プレイヤーの場 拡大表示 ===== -->
+<div id="fieldZoomOverlay" class="overlay hidden">
+  <div class="overlayPanel">
+    <div id="fieldZoomTitle" class="fieldLabel"></div>
+    <div id="fieldZoomCards" class="myField"></div>
+    <button id="btnCloseFieldZoom">閉じる</button>
+  </div>
+</div>
+
+<!-- ===== カード選択ポップアップ ===== -->
+<div id="cardPopup" class="overlay hidden">
+  <div id="cardPopupInner" class="cardPopupInner">
+    <div class="popupHandStrip" id="popupHandStrip"></div>
+    <div class="popupCardDisplay">
+      <div class="cardVisualBig" id="popupCardVisual">
+        <div class="cardCostBadge" id="popupCardCost"></div>
+        <div class="cardIllust">🂠</div>
+        <div class="cardName" id="popupCardName"></div>
+        <div class="cardEffectText" id="popupCardEffect"></div>
+      </div>
+      <div class="popupSideControls">
+        <select id="popupTarget"></select>
+        <input id="popupCost" type="number" min="1" max="7" placeholder="コスト(1〜7)" class="hidden" />
+        <button id="btnPlayFaceUp" class="popupActionBtn">表向きに置く</button>
+        <button id="btnPlayFaceDown" class="popupActionBtn">裏向きに置く</button>
+        <button id="btnCancelPlay" class="popupActionBtn cancel">キャンセル</button>
+      </div>
     </div>
+  </div>
+</div>
+
+<div id="ruleOverlay" class="overlay hidden">
+  <div class="overlayPanel wide">
+    <div class="fieldLabel">ルール</div>
+    <div id="ruleText" class="ruleText"></div>
+    <button id="btnCloseRules">閉じる</button>
   </div>
 </div>
 
