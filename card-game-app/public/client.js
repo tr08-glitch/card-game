@@ -24,6 +24,8 @@ const CARD_INFO = {
   0: { name: 'シークレット', cost: '0', black: null, effect: '破滅または豪運のいずれかが発動する。' },
 };
 
+const SHORT_COST = { 1:'1',2:'1',3:'2',4:'2',5:'2',6:'3',7:'?',8:'4',9:'5',10:'3',11:'6',12:'?',13:'全',0:'0' };
+
 function cardLabel(no) {
   const info = CARD_INFO[no] || {};
   return info.name || `No.${no}`;
@@ -39,6 +41,8 @@ function openOverlay(id) { $(id).classList.remove('hidden'); }
 function closeOverlay(id) { $(id).classList.add('hidden'); }
 
 // ========== タイトル画面 ==========
+$('btnTitleMenuRules').onclick = () => { $('ruleText').textContent = RULE_TEXT; openOverlay('ruleOverlay'); };
+
 $('btnCreateRoom').onclick = () => {
   const name = $('nameInput').value.trim();
   socket.emit('createRoom', { name }, (res) => {
@@ -90,6 +94,12 @@ $('btnDoJoin').onclick = () => {
     showScreen('lobby');
   });
 };
+
+$('btnSettingsIcon').onclick = () => openOverlay('titleSettingsOverlay');
+$('btnCloseTitleSettings').onclick = () => closeOverlay('titleSettingsOverlay');
+$('btnTitleRules').onclick = () => { $('ruleText').textContent = RULE_TEXT; openOverlay('ruleOverlay'); };
+
+$('btnLobbySettingsIcon').onclick = () => openOverlay('titleSettingsOverlay');
 
 $('btnCredits').onclick = () => {
   alert('混沌\n制作: あなた自身とClaude\n(クレジット画面は準備中です)');
@@ -150,9 +160,14 @@ $('btnApplySettings').onclick = () => {
 };
 
 $('btnStartGame').onclick = () => socket.emit('startGame');
+$('btnReturnToLobby').onclick = () => socket.emit('returnToLobby');
+$('btnNewGame').onclick = () => socket.emit('newGame');
 $('btnLobbyChatSend').onclick = () => sendChat('lobbyChatInput', 'lobbyChatTarget');
 
+socket.on('errorMsg', (msg) => { alert(msg); });
+
 // ========== ゲーム画面 ==========
+$('btnGameRules').onclick = () => { $('ruleText').textContent = RULE_TEXT; openOverlay('ruleOverlay'); };
 $('btnSurrender').onclick = () => { if (confirm('降参しますか?')) socket.emit('surrender'); };
 $('btnLeaveGame').onclick = () => { socket.emit('leaveRoom'); showScreen('title'); };
 $('btnGameChatSend').onclick = () => sendChat('gameChatInput', 'chatTarget');
@@ -176,6 +191,11 @@ function sendChat(inputId, targetSelectId) {
 }
 
 // ========== カード表示ヘルパー ==========
+function cardImagePath(card) {
+  const key = card.secretKey || card.no;
+  return `images/${key}.png`;
+}
+
 function makeCardEl(card, opts = {}) {
   const div = document.createElement('div');
   const info = CARD_INFO[card.no] || {};
@@ -184,9 +204,12 @@ function makeCardEl(card, opts = {}) {
   if (card.faceUp === false && !opts.forceShow) {
     div.innerHTML = `<div class="cardNameSmall">裏</div>`;
   } else {
+    div.style.backgroundImage = `linear-gradient(rgba(20,10,35,0.55), rgba(20,10,35,0.75)), url('${cardImagePath(card)}')`;
+    div.style.backgroundSize = 'cover';
+    div.style.backgroundPosition = 'center';
     div.innerHTML = `
       <div class="cardNo">No.${card.no}</div>
-      <div class="cardCost">${info.cost || ''}</div>
+      <div class="cardCost">${SHORT_COST[card.no] != null ? SHORT_COST[card.no] : ''}</div>
       <div class="cardNameSmall">${info.name || card.name}${card.misfired ? '(不発)' : ''}</div>
     `;
   }
@@ -220,6 +243,14 @@ function renderPopupCard(card) {
   $('popupCardEffect').textContent = info.effect || '';
   $('popupCost').classList.toggle('hidden', card.no !== 7 && card.no !== 13);
 
+  const img = $('popupCardIllustImg');
+  const fallback = $('popupCardIllustFallback');
+  img.onerror = () => { img.classList.add('hidden'); fallback.classList.remove('hidden'); };
+  img.onload = () => { img.classList.remove('hidden'); fallback.classList.add('hidden'); };
+  img.classList.add('hidden');
+  fallback.classList.remove('hidden');
+  img.src = cardImagePath(card);
+
   const targetSel = $('popupTarget');
   targetSel.innerHTML = '<option value="">(対象なし/自分)</option>';
   if (latestState) {
@@ -251,8 +282,60 @@ $('btnPlayFaceUp').onclick = () => {
   selectedCard = null;
 };
 
+// ========== 対戦画面の背景(参加人数に応じて自動切り替え) ==========
+let currentBgPlayerCount = null;
+const bgResolveCache = {};
+
+function setTableBackground(n) {
+  if (currentBgPlayerCount === n) return;
+  currentBgPlayerCount = n;
+  if (bgResolveCache[n]) {
+    applyTableBackground(bgResolveCache[n]);
+    return;
+  }
+  const candidates = [];
+  for (let d = 0; d <= 4; d++) {
+    if (n + d <= 6) candidates.push(n + d);
+    if (d > 0 && n - d >= 2) candidates.push(n - d);
+  }
+  tryLoadCandidates(candidates, 0, n);
+}
+
+function tryLoadCandidates(list, i, n) {
+  if (i >= list.length) return; // どれも読み込めない場合は既定の背景のまま
+  const path = `images/table-${list[i]}.jpg`;
+  const img = new Image();
+  img.onload = () => { bgResolveCache[n] = path; if (currentBgPlayerCount === n) applyTableBackground(path); };
+  img.onerror = () => tryLoadCandidates(list, i + 1, n);
+  img.src = path;
+}
+
+function applyTableBackground(path) {
+  $('screen-game').style.background =
+    `linear-gradient(rgba(18,8,28,0.55), rgba(18,8,28,0.75)), url('${path}') center/cover no-repeat, radial-gradient(ellipse at 50% 0%, #2a1746 0%, #12081c 65%)`;
+}
+
 // ========== サーバーからの状態更新 ==========
+let prevAliveState = true;
+let endHandledForRoom = false;
+let wasStarted = false;
+let prevEnded = false;
+
 socket.on('state', (state) => {
+  const startedFresh = (state.started && !wasStarted) || (prevEnded && !state.ended && state.started);
+  wasStarted = state.started;
+  prevEnded = state.ended;
+  if (startedFresh) {
+    prevAliveState = true;
+    endHandledForRoom = false;
+    $('victoryOverlay').classList.add('hidden');
+    $('loseOverlay').classList.add('hidden');
+  }
+  if (!state.started) {
+    $('victoryOverlay').classList.add('hidden');
+    $('loseOverlay').classList.add('hidden');
+  }
+
   latestState = state;
   myId = state.you;
 
@@ -271,6 +354,10 @@ function renderLobby(state) {
   $('hostControls').classList.toggle('hidden', !isHost);
   $('btnStartGame').classList.toggle('hidden', !isHost);
   $('btnDisbandRoom').classList.toggle('hidden', !isHost);
+
+  const enoughPlayers = state.players.length >= 2;
+  $('btnStartGame').disabled = !enoughPlayers;
+  $('startGameHint').classList.toggle('hidden', !isHost || enoughPlayers);
 
   const list = $('playerList');
   list.innerHTML = '';
@@ -298,6 +385,7 @@ function updateChatTargetSelect(sel, state) {
 }
 
 function renderGame(state) {
+  setTableBackground(state.players.length);
   $('deckCount').textContent = state.deckCount;
   $('turnInfo').textContent = state.turnLimitEnabled ? `${state.turnCount}/${state.turnLimit}` : '∞';
 
@@ -310,8 +398,9 @@ function renderGame(state) {
     const box = document.createElement('div');
     box.className = 'oppBox' + (p.alive ? '' : ' dead') + (p.id === state.currentPlayerId ? ' currentTurn' : '');
     box.innerHTML = `
-      <div class="oppName">${p.name}${p.shielded ? ' 🛡' : ''}</div>
-      <div class="oppStats"><span class="lifeTag">♡${p.life == null ? '?' : p.life}</span><span class="manaTag">★${p.mana == null ? '?' : p.mana}</span></div>
+      <div class="oppLifeManaTag"><span class="lifeTag">♡${p.life == null ? '?' : p.life}</span> <span class="manaTag">★${p.mana == null ? '?' : p.mana}</span></div>
+      <div class="oppAvatar">${p.shielded ? '🛡' : '🙂'}</div>
+      <div class="oppName">${p.name}</div>
       <div class="oppHandCount">手札:${p.handCount}枚</div>
       <div class="oppFieldMini">場:${p.field.length}枚</div>
     `;
@@ -359,12 +448,38 @@ function renderGame(state) {
     }
   }
 
+  if (me) {
+    if (prevAliveState === true && me.alive === false) {
+      showLoseOverlay();
+    }
+    prevAliveState = me.alive;
+  }
+
+  if (state.ended && !endHandledForRoom) {
+    endHandledForRoom = true;
+    if (state.winnerId === myId) {
+      $('victoryOverlay').classList.remove('hidden');
+    } else if (!(me && me.alive === false)) {
+      // 山札切れ等でライフ勝負に敗れた場合(死亡演出が出ていない場合)もLOSEを出す
+      showLoseOverlay();
+    }
+  }
+
+  $('btnReturnToLobby').classList.toggle('hidden', !(state.ended && state.hostId === myId));
+  $('btnNewGame').classList.toggle('hidden', !(state.ended && state.hostId === myId));
+
   updateChatTargetSelect($('chatTarget'), state);
 
   if (state.ended) {
     const winner = state.players.find((p) => p.id === state.winnerId);
     appendLog(winner ? `ゲーム終了!勝者: ${winner.name}` : 'ゲーム終了(勝者なし)');
   }
+}
+
+function showLoseOverlay() {
+  const el = $('loseOverlay');
+  el.classList.remove('hidden');
+  setTimeout(() => { el.classList.add('hidden'); }, 5000);
 }
 
 function openFieldZoom(p) {

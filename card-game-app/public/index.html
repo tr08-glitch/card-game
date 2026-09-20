@@ -20,6 +20,7 @@
       <button id="btnAiBattle" class="menuBtn">AI戦</button>
       <button id="btnCreateRoom" class="menuBtn">ルーム作成</button>
       <button id="btnJoinRoom" class="menuBtn">ルーム参加</button>
+      <button id="btnTitleMenuRules" class="menuBtn">ルール</button>
     </div>
   </div>
 
@@ -50,6 +51,14 @@
   </div>
 
   <p id="titleError" class="error"></p>
+
+  <div id="titleSettingsOverlay" class="overlay hidden">
+    <div class="overlayPanel">
+      <button id="btnCloseTitleSettings" class="closeX">×</button>
+      <div class="fieldLabel">設定</div>
+      <button id="btnTitleRules" class="menuBtn" style="width:100%">ルール</button>
+    </div>
+  </div>
 </div>
 
 <!-- ===== ルーム(ロビー)画面 ===== -->
@@ -70,6 +79,7 @@
       </div>
 
       <button id="btnStartGame" class="bigBtn hidden">ゲーム開始</button>
+      <div id="startGameHint" class="startGameHint hidden">2人以上揃うとゲームを開始できます</div>
 
       <div class="lobbyExitRow">
         <button id="btnLeaveLobby" class="pillBtnWarn">ルームから抜ける</button>
@@ -132,6 +142,7 @@
     </div>
 
     <div class="topRightButtons">
+      <button id="btnGameRules" class="pillBtn">ルール</button>
       <button id="btnSurrender" class="pillBtnWarn">降参</button>
       <button id="btnLeaveGame" class="pillBtnWarn">退室</button>
     </div>
@@ -146,14 +157,26 @@
     <div class="fieldLabelSmall">自身の場</div>
     <div id="myField" class="myField"></div>
 
-    <div id="selfInfo" class="selfInfo">
-      <span id="selfName">自分</span>
-      <span class="lifeTag">♡<span id="selfLife">-</span></span>
-      <span class="manaTag">★<span id="selfMana">-</span></span>
+    <div id="selfInfo" class="selfInfoFixed">
+      <div class="selfInfoStats">
+        <span class="lifeTag">♡<span id="selfLife">-</span></span>
+        <span class="manaTag">★<span id="selfMana">-</span></span>
+      </div>
+      <div class="selfInfoName" id="selfName">自分</div>
     </div>
 
     <div class="fieldLabelSmall">自身の手札</div>
     <div id="myHand" class="myHand"></div>
+
+    <button id="btnReturnToLobby" class="returnLobbyBtn hidden">ルームへ戻る</button>
+    <button id="btnNewGame" class="newGameBtn hidden">ニューゲーム</button>
+  </div>
+
+  <div id="victoryOverlay" class="resultOverlay hidden">
+    <div class="resultText victoryText">VICTORY</div>
+  </div>
+  <div id="loseOverlay" class="resultOverlay hidden">
+    <div class="resultText loseText">LOSE</div>
   </div>
 
   <div id="gameLog" class="gameLog"></div>
@@ -185,7 +208,8 @@
     <div class="popupCardDisplay">
       <div class="cardVisualBig" id="popupCardVisual">
         <div class="cardCostBadge" id="popupCardCost"></div>
-        <div class="cardIllust">🂠</div>
+        <img id="popupCardIllustImg" class="cardIllustImg hidden" alt="" />
+        <div class="cardIllust" id="popupCardIllustFallback">🂠</div>
         <div class="cardName" id="popupCardName"></div>
         <div class="cardEffectText" id="popupCardEffect"></div>
       </div>

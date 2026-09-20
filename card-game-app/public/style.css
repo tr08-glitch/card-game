@@ -36,6 +36,8 @@ button {
 }
 button:hover { filter: brightness(1.2); }
 button:active { transform: scale(0.97); }
+button:disabled { opacity: 0.45; cursor: not-allowed; filter: none; }
+button:disabled:hover { filter: none; }
 
 input, select {
   font-family: inherit;
@@ -47,6 +49,11 @@ input, select {
 }
 
 .screen { position: relative; min-height: 100vh; padding: 1.5em; }
+
+#screen-title {
+  background: linear-gradient(90deg, rgba(18,8,28,0.75) 0%, rgba(18,8,28,0.35) 55%, rgba(18,8,28,0.15) 100%),
+    url('images/title-bg.jpg') center/cover no-repeat;
+}
 
 /* ===== 共通パーツ ===== */
 .iconBtn {
@@ -160,7 +167,7 @@ input, select {
 .settingsRow input[type="number"] { width: 4.5em; }
 
 /* ===== ゲーム画面 ===== */
-#table { position: relative; padding-top: 5.5em; padding-bottom: 1em; }
+#table { position: relative; padding-top: 5.5em; padding-bottom: 6em; }
 .topLeftInfo {
   position: absolute; top: 0; left: 0; font-size: 0.85em; color: var(--text-dim);
   background: #150a22cc; border: 1px solid #4a3766; border-radius: 8px; padding: 0.5em 0.9em;
@@ -168,20 +175,28 @@ input, select {
 .topLeftInfo .bigNum { color: var(--accent-gold); font-size: 1.3em; line-height: 1.1; margin-bottom: 0.3em; }
 .topRightButtons { position: absolute; top: 0; right: 0; display: flex; gap: 0.5em; }
 
-.opponentsRow { display: flex; gap: 1em; flex-wrap: wrap; justify-content: center; margin-bottom: 1.2em; }
+.opponentsRow { display: flex; gap: 1.4em; flex-wrap: wrap; justify-content: center; margin-bottom: 2em; }
 .oppBox {
-  border: 1px solid #5a4478; border-radius: 10px; padding: 0.7em 1em; min-width: 140px; text-align: center;
+  border: 1px solid #5a4478; border-radius: 10px; padding: 0.7em 1em; min-width: 130px; text-align: center;
   background: linear-gradient(180deg, #241536, #170c26); cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 0.2em;
 }
 .oppBox:hover { border-color: var(--accent-gold); }
 .oppBox.dead { opacity: 0.35; filter: grayscale(0.6); cursor: default; }
 .oppBox.currentTurn { border-color: var(--accent-gold); box-shadow: 0 0 14px rgba(224, 185, 90, 0.5); }
-.oppName { font-size: 0.95em; margin-bottom: 0.3em; }
-.oppStats { display: flex; gap: 0.7em; justify-content: center; font-size: 0.95em; }
 .lifeTag { color: var(--accent-red); }
 .manaTag { color: var(--accent-gold); }
-.oppHandCount { font-size: 0.8em; color: var(--text-dim); margin-top: 0.3em; }
-.oppFieldMini { font-size: 0.75em; color: var(--text-dim); margin-top: 0.2em; }
+.oppLifeManaTag {
+  background: #0d0616; border: 1px solid #4a3766; border-radius: 999px;
+  padding: 0.15em 0.7em; font-size: 0.85em; margin-bottom: 0.2em;
+}
+.oppAvatar {
+  width: 2.4em; height: 2.4em; border-radius: 50%; background: #2e1d4a; border: 1px solid #5a4478;
+  display: flex; align-items: center; justify-content: center; font-size: 1.2em;
+}
+.oppName { font-size: 0.95em; }
+.oppHandCount { font-size: 0.8em; color: var(--text-dim); }
+.oppFieldMini { font-size: 0.75em; color: var(--text-dim); }
 
 .drawnCardArea {
   border: 1px dashed var(--accent-gold); border-radius: 10px; padding: 0.6em; margin: 0.6em auto;
@@ -191,6 +206,7 @@ input, select {
 .myField, .oppFieldZoomCards {
   display: flex; gap: 0.7em; flex-wrap: wrap; min-height: 90px;
   border: 1px dashed #4a3766; border-radius: 10px; padding: 0.7em; justify-content: center;
+  margin-bottom: 1.6em;
 }
 
 .card {
@@ -210,7 +226,13 @@ input, select {
 .card .cardCost { position: absolute; top: 3px; right: 5px; font-size: 0.85em; color: var(--accent-red); }
 .card .cardNameSmall { margin-top: 0.8em; font-weight: bold; }
 
-.selfInfo { display: flex; gap: 1em; align-items: center; justify-content: center; margin: 0.6em 0; font-size: 1.1em; }
+.selfInfoFixed {
+  position: absolute; left: 0; bottom: 0;
+  background: #150a22cc; border: 1px solid #4a3766; border-radius: 8px;
+  padding: 0.6em 1em; text-align: center; min-width: 110px;
+}
+.selfInfoStats { display: flex; gap: 0.8em; justify-content: center; font-size: 1.15em; margin-bottom: 0.3em; }
+.selfInfoName { font-size: 0.85em; color: var(--text-dim); }
 
 .myHand { display: flex; gap: 0.8em; justify-content: center; min-height: 128px; }
 .handCard { cursor: pointer; transition: transform 0.15s, box-shadow 0.15s; }
@@ -246,6 +268,7 @@ input, select {
   font-weight: bold;
 }
 .cardIllust { font-size: 3.5em; margin: 1em 0 0.4em; opacity: 0.8; }
+.cardIllustImg { width: 160px; height: 160px; object-fit: contain; margin: 0.6em 0 0.2em; border-radius: 8px; }
 .cardName { font-size: 1.3em; font-weight: bold; color: var(--accent-gold); margin-bottom: 0.6em; }
 .cardEffectText { font-size: 0.85em; color: var(--text-main); text-align: center; line-height: 1.5; }
 .popupSideControls { display: flex; flex-direction: column; gap: 0.7em; min-width: 200px; }
@@ -254,7 +277,42 @@ input, select {
 
 .ruleText { font-size: 0.85em; line-height: 1.7; white-space: pre-wrap; max-height: 55vh; overflow-y: auto; }
 
+.startGameHint { font-size: 0.8em; color: var(--text-dim); text-align: center; margin-top: -0.4em; }
+
+.returnLobbyBtn {
+  position: fixed; left: 50%; bottom: 3.6em; transform: translateX(-50%);
+  z-index: 60; padding: 0.8em 2em; font-size: 1.05em; border-radius: 999px;
+  background: linear-gradient(180deg, var(--accent-gold), #a67c2a); color: #241536; font-weight: bold;
+  border-color: var(--accent-gold);
+}
+.newGameBtn {
+  position: fixed; left: 50%; bottom: 0.8em; transform: translateX(-50%);
+  z-index: 60; padding: 0.6em 1.6em; font-size: 0.95em; border-radius: 999px;
+  background: linear-gradient(180deg, #3a2456, #241536); color: var(--text-main);
+  border-color: var(--border-gold);
+}
+
+.resultOverlay {
+  position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
+  background: rgba(5, 2, 12, 0.55); pointer-events: none;
+}
+.resultText {
+  font-size: 4.5em; font-weight: bold; letter-spacing: 0.1em;
+  padding: 0.3em 0.8em; border-radius: 16px; text-shadow: 0 0 30px rgba(0,0,0,0.8);
+}
+.victoryText {
+  color: #ffe9a8; background: rgba(60, 40, 10, 0.35);
+  border: 2px solid var(--accent-gold);
+  text-shadow: 0 0 24px rgba(224, 185, 90, 0.9);
+}
+.loseText {
+  color: #ffc6cf; background: rgba(50, 10, 18, 0.35);
+  border: 2px solid var(--accent-red);
+  text-shadow: 0 0 24px rgba(217, 68, 95, 0.9);
+}
+
 @media (max-width: 720px) {
   .lobbyGrid { grid-template-columns: 1fr; }
   .titleLayout { margin: 2em 1em; }
+  .resultText { font-size: 2.6em; }
 }
