@@ -13,8 +13,8 @@ const CARD_INFO = {
   3: { name: '強奪', cost: '2', black: true, effect: '相手を1人選び、マナを3盗む。' },
   4: { name: '攻撃', cost: '2', black: true, effect: '相手に3ダメージ、自身に1ダメージ。' },
   5: { name: '防御', cost: '2', black: false, effect: '次の自分のターンまで、他プレイヤーの能力を受けない。' },
-  6: { name: '取引', cost: '3', black: false, effect: '相手プレイヤー1人と手札を交換する。' },
-  7: { name: '賭博', cost: '1〜7(選択)', black: true, effect: '相手とルーレット対決。差分に応じてダメージ・マナ授受。' },
+  6: { name: '取引', cost: '3', black: false, effect: '相手プレイヤー1人の手札を見て、相手のカード1枚と自分のカード1枚を選んで交換する。' },
+  7: { name: '賭博', cost: '1〜7(選択)', black: true, effect: '相手とルーレット対決。差分に応じてダメージ、差分の半分のマナを授受(相手の保有分が上限)。' },
   8: { name: '戦争', cost: '4', black: true, effect: '相手と手札No.合計を比較。負けた方が差分ダメージ。' },
   9: { name: '輪廻', cost: '5', black: false, effect: 'ライフ・マナをリセットし、手札を全て入れ替える。' },
   10: { name: '反逆', cost: '3', black: false, effect: '次の自分のターンまで、受けた能力を反射する。' },
@@ -22,6 +22,11 @@ const CARD_INFO = {
   12: { name: '浄化', cost: '使用済黒カード数×1.5', black: false, effect: '黒いカードの使用・保持数に応じて全体にダメージ・マナ減少。' },
   13: { name: '混沌', cost: '全マナ', black: true, effect: 'マナ量に応じた規模のランダムな全体効果が発動する。' },
   0: { name: 'シークレット', cost: '0', black: null, effect: '破滅または豪運のいずれかが発動する。' },
+};
+
+const SECRET_INFO = {
+  destruction: { name: '破滅', cost: '0', black: true, effect: '全プレイヤーのHPを1、マナを0にする。' },
+  luck: { name: '豪運', cost: '0', black: false, effect: 'HP+5、マナ+3。山札から好きなカードを1枚選び手札1枚と交換。さらに次の自分のターン開始まで防御状態になる(他プレイヤーの能力を受けない)。' },
 };
 
 const SHORT_COST = { 1:'1',2:'1',3:'2',4:'2',5:'2',6:'3',7:'?',8:'4',9:'5',10:'3',11:'6',12:'?',13:'全',0:'0' };
@@ -111,6 +116,37 @@ $('btnDisbandRoom').onclick = () => { if (confirm('ルームを解散します�
 
 $('btnShowRules').onclick = () => { $('ruleText').textContent = RULE_TEXT; openOverlay('ruleOverlay'); };
 $('btnCloseRules').onclick = () => closeOverlay('ruleOverlay');
+$('btnCloseCardList').onclick = () => closeOverlay('cardListOverlay');
+$('btnTitleCardList').onclick = () => { buildCardListOverlay(); openOverlay('cardListOverlay'); };
+$('btnLobbyCardList').onclick = () => { buildCardListOverlay(); openOverlay('cardListOverlay'); };
+$('btnGameCardList').onclick = () => { buildCardListOverlay(); openOverlay('cardListOverlay'); };
+
+function buildCardListOverlay() {
+  const body = $('cardListBody');
+  body.innerHTML = '';
+  for (let no = 1; no <= 13; no++) {
+    const info = CARD_INFO[no];
+    body.appendChild(makeCardListRow(`images/${no}.png`, `No.${no} ${info.name}`, info.cost, info.black, info.effect));
+  }
+  for (const key of ['destruction', 'luck']) {
+    const info = SECRET_INFO[key];
+    body.appendChild(makeCardListRow(`images/${key}.png`, `シークレット ${info.name}`, info.cost, info.black, info.effect));
+  }
+}
+
+function makeCardListRow(imgPath, title, cost, black, effect) {
+  const row = document.createElement('div');
+  row.className = 'cardListRow';
+  const thumb = document.createElement('div');
+  thumb.className = 'cardListThumb';
+  thumb.style.backgroundImage = `url('${imgPath}')`;
+  const infoDiv = document.createElement('div');
+  infoDiv.className = 'cardListInfo';
+  infoDiv.innerHTML = `<span class="cardListName${black ? ' black' : ''}">${title}</span><span class="cardListCost">コスト:${cost}</span><div class="cardListEffect">${effect}</div>`;
+  row.appendChild(thumb);
+  row.appendChild(infoDiv);
+  return row;
+}
 
 $('btnCardCount').onclick = () => { buildCardCountList(); openOverlay('cardCountOverlay'); };
 $('btnCardCountCancel').onclick = () => closeOverlay('cardCountOverlay');
@@ -139,17 +175,24 @@ function buildCardCountList(useDefault) {
   }
 }
 
-$('btnGameSettings').onclick = () => openOverlay('gameSettingsOverlay');
+$('btnGameSettings').onclick = () => { syncTurnLimitFieldState(); openOverlay('gameSettingsOverlay'); };
+$('chkTurnLimit').onchange = syncTurnLimitFieldState;
+function syncTurnLimitFieldState() {
+  $('turnLimitNum').disabled = !$('chkTurnLimit').checked;
+}
 $('btnGameSettingsCancel').onclick = () => closeOverlay('gameSettingsOverlay');
 $('btnGameSettingsDefault').onclick = () => {
+  $('initialLifeNum').value = 10;
   $('chkTurnLimit').checked = false;
   $('turnLimitNum').value = 20;
   $('chkChat').checked = true;
   $('chkShowLife').checked = true;
   $('chkShowMana').checked = true;
+  syncTurnLimitFieldState();
 };
 $('btnApplySettings').onclick = () => {
   socket.emit('setGameSettings', {
+    initialLife: parseInt($('initialLifeNum').value, 10) || 10,
     turnLimitEnabled: $('chkTurnLimit').checked,
     turnLimit: parseInt($('turnLimitNum').value, 10) || 20,
     chatEnabled: $('chkChat').checked,
@@ -220,7 +263,7 @@ function makeCardEl(card, opts = {}) {
 function openCardPopup(card, handList) {
   selectedCard = card;
   renderPopupHandStrip(handList);
-  renderPopupCard(card);
+  renderPopupCard(card, handList);
   openOverlay('cardPopup');
 }
 
@@ -236,12 +279,28 @@ function renderPopupHandStrip(handList) {
   }
 }
 
-function renderPopupCard(card) {
+function renderPopupCard(card, handList) {
   const info = CARD_INFO[card.no] || {};
   $('popupCardName').textContent = `No.${card.no} ${info.name || card.name}`;
   $('popupCardCost').textContent = info.cost || '-';
   $('popupCardEffect').textContent = info.effect || '';
-  $('popupCost').classList.toggle('hidden', card.no !== 7 && card.no !== 13);
+  // コストをプレイヤーが選べるのはNo.7のみ(No.13混沌は常に全マナを消費するため選択不要)
+  $('popupCost').classList.toggle('hidden', card.no !== 7);
+
+  const isSearch = card.no === 1; // 探索: 引いた後、手札を1枚山札に戻す
+  const returnSel = $('popupReturnCard');
+  returnSel.classList.toggle('hidden', !isSearch);
+  if (isSearch) {
+    returnSel.innerHTML = '';
+    const remaining = (handList || []).filter((c) => c.instanceId !== card.instanceId);
+    for (const c of remaining) {
+      const opt = document.createElement('option');
+      opt.value = c.instanceId;
+      const rInfo = CARD_INFO[c.no] || {};
+      opt.textContent = `戻す: No.${c.no} ${rInfo.name || c.name}`;
+      returnSel.appendChild(opt);
+    }
+  }
 
   const img = $('popupCardIllustImg');
   const fallback = $('popupCardIllustFallback');
@@ -277,10 +336,107 @@ $('btnPlayFaceUp').onclick = () => {
   if (!selectedCard) return;
   const targetId = $('popupTarget').value || undefined;
   const chosenCost = parseInt($('popupCost').value, 10) || undefined;
-  socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId, chosenCost });
+  const returnInstanceId = selectedCard.no === 1 ? ($('popupReturnCard').value || undefined) : undefined;
+
+  if (selectedCard.no === 6) {
+    if (!targetId) { alert('対象のプレイヤーを選んでください'); return; }
+    startTradeFlow(selectedCard, targetId);
+    closeOverlay('cardPopup');
+    return;
+  }
+
+  socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId, chosenCost, returnInstanceId });
   closeOverlay('cardPopup');
   selectedCard = null;
 };
+
+// ========== 取引(No.6): 相手の手札を見て1枚ずつ交換 ==========
+let tradeState = null; // { card, targetId, chosenGiveId, chosenTakeId }
+
+function startTradeFlow(card, targetId) {
+  tradeState = { card, targetId, chosenGiveId: null, chosenTakeId: null };
+  socket.emit('peekHand', { targetId });
+}
+
+socket.on('handPeek', ({ targetId, hand }) => {
+  if (!tradeState || tradeState.targetId !== targetId) return;
+  renderTradeOverlay(hand);
+  openOverlay('tradeOverlay');
+});
+
+function renderTradeOverlay(targetHand) {
+  const targetDiv = $('tradeTargetHand');
+  targetDiv.innerHTML = '';
+  for (const c of targetHand) {
+    const el = makeCardEl(c, { forceShow: true });
+    el.classList.add('handCard');
+    if (tradeState.chosenTakeId === c.instanceId) el.classList.add('selected');
+    el.onclick = () => { tradeState.chosenTakeId = c.instanceId; renderTradeOverlay(targetHand); };
+    targetDiv.appendChild(el);
+  }
+
+  const ownDiv = $('tradeOwnHand');
+  ownDiv.innerHTML = '';
+  const me = latestState && latestState.players.find((p) => p.id === myId);
+  const ownHand = (me && me.hand) || [];
+  for (const c of ownHand) {
+    if (c.instanceId === tradeState.card.instanceId) continue; // 取引カード自体は交換対象にしない
+    const el = makeCardEl(c, { forceShow: true });
+    el.classList.add('handCard');
+    if (tradeState.chosenGiveId === c.instanceId) el.classList.add('selected');
+    el.onclick = () => { tradeState.chosenGiveId = c.instanceId; renderTradeOverlay(targetHand); };
+    ownDiv.appendChild(el);
+  }
+}
+
+$('btnTradeCancel').onclick = () => { tradeState = null; closeOverlay('tradeOverlay'); };
+$('btnTradeConfirm').onclick = () => {
+  if (!tradeState || !tradeState.chosenGiveId || !tradeState.chosenTakeId) {
+    alert('渡すカードともらうカードを、それぞれ1枚ずつ選んでください');
+    return;
+  }
+  socket.emit('playCard', {
+    instanceId: tradeState.card.instanceId,
+    faceUp: true,
+    targetId: tradeState.targetId,
+    tradeGiveInstanceId: tradeState.chosenGiveId,
+    tradeTakeInstanceId: tradeState.chosenTakeId,
+  });
+  tradeState = null;
+  closeOverlay('tradeOverlay');
+};
+
+// ========== ルーレット演出(No.7 賭博) ==========
+socket.on('rouletteResult', (data) => {
+  $('rouletteActorName').textContent = data.actorName;
+  $('rouletteTargetName').textContent = data.targetName;
+  const actorNumEl = $('rouletteActorNumber');
+  const targetNumEl = $('rouletteTargetNumber');
+  actorNumEl.textContent = '?';
+  targetNumEl.textContent = '?';
+  actorNumEl.classList.add('spinning');
+  targetNumEl.classList.add('spinning');
+  actorNumEl.classList.remove('landed');
+  targetNumEl.classList.remove('landed');
+  openOverlay('rouletteOverlay');
+
+  const spinInterval = setInterval(() => {
+    actorNumEl.textContent = String(1 + Math.floor(Math.random() * 10));
+    targetNumEl.textContent = String(1 + Math.floor(Math.random() * 10));
+  }, 80);
+
+  setTimeout(() => {
+    clearInterval(spinInterval);
+    actorNumEl.textContent = String(data.actorRoll);
+    targetNumEl.textContent = String(data.targetRoll);
+    actorNumEl.classList.remove('spinning');
+    targetNumEl.classList.remove('spinning');
+    actorNumEl.classList.add('landed');
+    targetNumEl.classList.add('landed');
+  }, 1200);
+
+  setTimeout(() => { closeOverlay('rouletteOverlay'); }, 3200);
+});
 
 // ========== 対戦画面の背景(参加人数に応じて自動切り替え) ==========
 let currentBgPlayerCount = null;
@@ -443,7 +599,7 @@ function renderGame(state) {
     // ポップアップが開いていれば内容を最新化
     if (!$('cardPopup').classList.contains('hidden') && selectedCard) {
       const stillThere = hand.find((c) => c.instanceId === selectedCard.instanceId);
-      if (stillThere) { renderPopupHandStrip(hand); renderPopupCard(stillThere); }
+      if (stillThere) { renderPopupHandStrip(hand); renderPopupCard(stillThere, hand); }
       else closeOverlay('cardPopup');
     }
   }
@@ -458,7 +614,7 @@ function renderGame(state) {
   if (state.ended && !endHandledForRoom) {
     endHandledForRoom = true;
     if (state.winnerId === myId) {
-      $('victoryOverlay').classList.remove('hidden');
+      showVictoryOverlay();
     } else if (!(me && me.alive === false)) {
       // 山札切れ等でライフ勝負に敗れた場合(死亡演出が出ていない場合)もLOSEを出す
       showLoseOverlay();
@@ -478,6 +634,12 @@ function renderGame(state) {
 
 function showLoseOverlay() {
   const el = $('loseOverlay');
+  el.classList.remove('hidden');
+  setTimeout(() => { el.classList.add('hidden'); }, 5000);
+}
+
+function showVictoryOverlay() {
+  const el = $('victoryOverlay');
   el.classList.remove('hidden');
   setTimeout(() => { el.classList.add('hidden'); }, 5000);
 }
