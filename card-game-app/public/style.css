@@ -155,6 +155,8 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 .lobbyExitRow { display: flex; gap: 0.6em; margin-top: 1em; flex-wrap: wrap; }
 .playerList { list-style: none; margin: 0; padding: 0; border: 1px solid #4a3766; border-radius: 6px; min-height: 160px; }
 .playerList li { padding: 0.6em 0.8em; border-bottom: 1px solid #2c1e46; }
+.playerList li.clickablePlayer { cursor: pointer; }
+.playerList li.clickablePlayer:hover { background: #2c1e46; }
 .playerList li:last-child { border-bottom: none; }
 .playerList li.host::after { content: " (GM)"; color: var(--accent-gold); font-size: 0.85em; }
 
@@ -230,7 +232,7 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 .selfInfoFixed {
   position: absolute; left: 0; bottom: 0;
   background: #150a22cc; border: 1px solid #4a3766; border-radius: 8px;
-  padding: 0.6em 1em; text-align: center; min-width: 110px;
+  padding: 0.6em 1em; text-align: center; min-width: 110px; cursor: pointer;
 }
 .selfInfoStats { display: flex; gap: 0.8em; justify-content: center; font-size: 1.15em; margin-bottom: 0.3em; }
 .selfInfoName { font-size: 0.85em; color: var(--text-dim); }
@@ -245,7 +247,7 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .myHand .handCard.disabled { cursor: default; opacity: 0.6; }
 
-.gameLog { font-size: 0.8em; color: var(--text-dim); max-height: 70px; overflow-y: auto; margin: 0.6em 0; text-align: center; }
+.gameLog { font-size: 0.9em; color: var(--text-dim); max-height: 160px; overflow-y: auto; margin: 0.6em 0; text-align: center; }
 
 .chatToggleBtn { position: fixed; right: 1.2em; bottom: 1.2em; border-radius: 999px; z-index: 40; }
 .chatPanel {
@@ -292,6 +294,36 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 .rouletteNumber.landed { border-color: #fff; box-shadow: 0 0 30px rgba(255, 255, 255, 0.7); }
 .rouletteVs { font-size: 1.4em; color: var(--accent-red); font-weight: bold; }
 @keyframes roulette-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.06); } 100% { transform: scale(1); } }
+
+.trialCandidates { display: flex; flex-wrap: wrap; gap: 0.8em; padding: 1em 0; justify-content: center; }
+.trialCandidateBtn {
+  padding: 0.8em 1.4em; border-radius: 8px; border: 2px solid var(--border-gold);
+  background: #2c1e46; color: var(--text-main); font-size: 1em; cursor: pointer;
+}
+.trialCandidateBtn:hover { background: #3a2a5c; }
+.trialCandidateBtn.voted { border-color: #fff; background: #4a2c6c; cursor: default; }
+.trialCandidateBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+.trialCandidateName { font-weight: bold; margin-bottom: 0.3em; }
+.trialCandidateStats { font-size: 0.85em; color: var(--text-dim); }
+
+.alphaCardsRow { display: flex; gap: 0.5em; flex-wrap: wrap; margin-bottom: 0.6em; justify-content: center; }
+.alphaCardTag {
+  background: linear-gradient(180deg, #4a2c6c, #2c1e46); border: 1px solid var(--accent-gold);
+  color: var(--accent-gold); border-radius: 999px; padding: 0.3em 0.8em; font-size: 0.85em;
+}
+.alphaCardTag.none { color: var(--text-dim); border-color: #4a3766; background: none; }
+.alphaChoiceList { display: flex; gap: 1em; justify-content: center; padding: 1em 0; }
+.myHandRow { display: flex; align-items: center; gap: 1em; justify-content: center; }
+.exclusiveCardSlot { display: flex; gap: 0.5em; }
+.exclusiveCardBtn {
+  width: 84px; height: 118px; border-radius: 8px; border: 2px solid var(--accent-gold);
+  background: linear-gradient(160deg, #4a2c6c, #241536);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  font-size: 0.8em; text-align: center; padding: 0.4em; color: var(--accent-gold); cursor: pointer;
+}
+.exclusiveCardBtn:hover { box-shadow: 0 0 14px rgba(224, 185, 90, 0.5); }
+.exclusiveCardBtn:disabled, .exclusiveCardBtn.disabled { opacity: 0.4; cursor: not-allowed; }
+.exclusiveCardBtn .excCost { font-size: 0.75em; color: var(--text-dim); margin-top: 0.3em; }
 .cardListBody { white-space: normal; }
 .cardListRow {
   display: flex; gap: 0.8em; align-items: flex-start; padding: 0.6em 0;
@@ -307,6 +339,10 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 .cardListName.black { color: #e08a8a; }
 .cardListCost { font-size: 0.8em; color: var(--text-dim); margin-left: 0.5em; }
 .cardListEffect { font-size: 0.85em; margin-top: 0.2em; }
+.cardListSectionHeader {
+  margin: 1em 0 0.4em; padding-top: 0.6em; border-top: 1px solid var(--border-gold);
+  color: var(--accent-gold); font-weight: bold; font-size: 0.95em;
+}
 
 .startGameHint { font-size: 0.8em; color: var(--text-dim); text-align: center; margin-top: -0.4em; }
 
@@ -324,8 +360,8 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 
 .resultOverlay {
-  position: fixed; inset: 0; z-index: 70; display: flex; align-items: center; justify-content: center;
-  background: rgba(5, 2, 12, 0.55); pointer-events: none;
+  position: fixed; inset: 0; z-index: 70; display: flex; align-items: flex-start; justify-content: center;
+  padding-top: 12vh; background: rgba(5, 2, 12, 0.55); pointer-events: none;
 }
 .resultText {
   font-size: 4.5em; font-weight: bold; letter-spacing: 0.1em;
@@ -346,4 +382,38 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
   .lobbyGrid { grid-template-columns: 1fr; }
   .titleLayout { margin: 2em 1em; }
   .resultText { font-size: 2.6em; }
+}
+
+/* スマホ横画面(高さが低い画面)対応 */
+@media (max-height: 500px) and (orientation: landscape) {
+  #table { padding-top: 3.6em; padding-bottom: 4.2em; }
+  .topLeftInfo { font-size: 0.7em; padding: 0.3em 0.6em; }
+  .topLeftInfo .bigNum { font-size: 1em; margin-bottom: 0.1em; }
+  .topRightButtons { gap: 0.3em; }
+  .topRightButtons .pillBtn, .topRightButtons .pillBtnWarn { padding: 0.35em 0.7em; font-size: 0.8em; }
+
+  .opponentsRow { gap: 0.6em; margin-bottom: 0.8em; }
+  .oppBox { padding: 0.4em 0.6em; min-width: 90px; }
+  .oppAvatar { width: 1.8em; height: 1.8em; font-size: 1em; }
+  .oppName { font-size: 0.8em; }
+  .oppHandCount, .oppFieldMini { font-size: 0.68em; }
+
+  .myField, .oppFieldZoomCards { min-height: 60px; margin-bottom: 0.6em; padding: 0.4em; }
+  .drawnCardArea { padding: 0.3em; margin: 0.3em auto; }
+  .myHand { min-height: 90px; gap: 0.5em; }
+  .card { width: 60px; height: 84px; font-size: 0.65em; padding: 0.25em; }
+
+  .selfInfoFixed { padding: 0.4em 0.7em; min-width: 80px; }
+  .selfInfoStats { font-size: 0.95em; gap: 0.5em; }
+  .selfInfoName { font-size: 0.75em; }
+
+  .gameLog { max-height: 60px; font-size: 0.75em; }
+
+  .chatToggleBtn { right: 0.6em; bottom: 0.6em; }
+  .chatPanel { right: 0.6em; bottom: 3em; width: 240px; max-height: 40vh; overflow-y: auto; }
+
+  .resultOverlay { padding-top: 4vh; }
+  .resultText { font-size: 1.8em; padding: 0.2em 0.5em; }
+  .returnLobbyBtn { bottom: 2.4em; padding: 0.5em 1.2em; font-size: 0.9em; }
+  .newGameBtn { bottom: 0.5em; padding: 0.4em 1em; font-size: 0.8em; }
 }

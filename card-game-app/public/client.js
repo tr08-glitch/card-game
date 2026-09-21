@@ -29,6 +29,71 @@ const SECRET_INFO = {
   luck: { name: '豪運', cost: '0', black: false, effect: 'HP+5、マナ+3。山札から好きなカードを1枚選び手札1枚と交換。さらに次の自分のターン開始まで防御状態になる(他プレイヤーの能力を受けない)。' },
 };
 
+// アルファモード専用のカード
+const ALPHA_CARD_INFO = {
+  blessing: { name: '加護', cost: '-', effect: 'メリット:初期ライフ+5。自分のターンの終わりにライフ+1(初期ライフを超えない)。デメリット:なし。' },
+  toughness: { name: '強靭', cost: '-', effect: '初期ライフ+7。受けるダメージを最終的に-1する。' },
+  training: { name: '鍛錬', cost: '-', effect: '自分の場の裏向きカード2枚につき、与えるダメージが最終的に+1。初期ライフ+3。' },
+  magicSword: { name: '魔剣', cost: '-', effect: '与えるダメージ+3。プレイヤーにダメージを与えると反動で自分が1ダメージを受ける(1回のカード使用につき反動は1回のみ)。' },
+  wings: { name: '翼', cost: '-', effect: '手札の上限が1枚増える(ゲーム開始時から常に3枚。輪廻などで引き直した後も3枚になる)。その代わり、すべてのカードの最終コストが+1になる。' },
+  muscle: { name: '筋肉', cost: '-', effect: '与えるダメージ+2、受けるダメージ-2、初期ライフ+7。その代わり手札の上限が1枚減る(常に1枚)。' },
+  berserk: { name: '狂化', cost: '-', effect: '初期ライフ+13、与えるダメージ+2。その代わりライフが一切回復しなくなる(輪廻による初期ライフへのリセットは回復扱いではないため可能)。' },
+  corruption: { name: '堕落', cost: '-', effect: '使った黒いカード2枚につき与ダメージ+1。黒いカードを使うとライフ+2。裏向きに置いた時、または黒いカード以外を使った時はライフ-1。' },
+  apostle: { name: '使徒', cost: '-', effect: '初期ライフ+3。専用カード「神罰」が使えるようになる。黒いカードを使うとライフ-4。' },
+  curse: { name: '呪詛', cost: '-', effect: '初期ライフ+3。自分のターンの終わりにランダムな敵1人に2ダメージ。その代わり受けるダメージ+1。' },
+  gambler: { name: '賭酔', cost: '-', effect: '専用カード「博打」が使えるようになる。ルーレットを使うカード全般で自分の出目+1。その代わりマナが自然回復しなくなる。' },
+};
+
+const EXCLUSIVE_CARD_INFO = {
+  divinePunishment: { name: '神罰', cost: 4, effect: '敵プレイヤー1人に 3+(使った黒いカード2枚につき1) のダメージを与える。使徒でのみ使用可。' },
+  gamble: { name: '博打', cost: 0, effect: '全プレイヤーでルーレットを回し、(自分の出目-全員の平均値)分だけマナが増減する(マナがマイナスになることもある)。自分の出目には+2。賭酔でのみ使用可。' },
+};
+
+function renderExclusiveCardSlot(me, isMyTurn) {
+  const slot = $('exclusiveCardSlot');
+  slot.innerHTML = '';
+  const owned = (me.alphaCards || []).filter((ac) => ac.exclusiveCard);
+  for (const ac of owned) {
+    const key = ac.exclusiveCard;
+    const info = EXCLUSIVE_CARD_INFO[key];
+    if (!info) continue;
+    const btn = document.createElement('div');
+    const canUse = isMyTurn && me.mana >= info.cost;
+    btn.className = 'exclusiveCardBtn' + (canUse ? '' : ' disabled');
+    btn.innerHTML = `<div>${info.name}</div><div class="excCost">コスト${info.cost}</div>`;
+    if (canUse) {
+      btn.onclick = () => {
+        if (key === 'divinePunishment') {
+          openExclusiveTargetOverlay(key);
+        } else {
+          if (confirm(`「${info.name}」を使いますか?`)) {
+            socket.emit('playExclusiveCard', { exclusiveKey: key });
+          }
+        }
+      };
+    }
+    slot.appendChild(btn);
+  }
+}
+
+function openExclusiveTargetOverlay(exclusiveKey) {
+  const list = $('exclusiveTargetList');
+  list.innerHTML = '';
+  const others = (latestState ? latestState.players : []).filter((p) => p.id !== myId && p.alive);
+  for (const p of others) {
+    const btn = document.createElement('button');
+    btn.className = 'trialCandidateBtn';
+    btn.textContent = p.name;
+    btn.onclick = () => {
+      socket.emit('playExclusiveCard', { exclusiveKey, targetId: p.id });
+      closeOverlay('exclusiveTargetOverlay');
+    };
+    list.appendChild(btn);
+  }
+  openOverlay('exclusiveTargetOverlay');
+}
+$('btnExclusiveTargetCancel').onclick = () => closeOverlay('exclusiveTargetOverlay');
+
 const SHORT_COST = { 1:'1',2:'1',3:'2',4:'2',5:'2',6:'3',7:'?',8:'4',9:'5',10:'3',11:'6',12:'?',13:'全',0:'0' };
 
 function cardLabel(no) {
@@ -132,6 +197,25 @@ function buildCardListOverlay() {
     const info = SECRET_INFO[key];
     body.appendChild(makeCardListRow(`images/${key}.png`, `シークレット ${info.name}`, info.cost, info.black, info.effect));
   }
+  const alphaKeys = Object.keys(ALPHA_CARD_INFO);
+  if (alphaKeys.length > 0) {
+    const header = document.createElement('div');
+    header.className = 'cardListSectionHeader';
+    header.textContent = 'アルファカード(アルファモード専用)';
+    body.appendChild(header);
+    for (const key of alphaKeys) {
+      const info = ALPHA_CARD_INFO[key];
+      body.appendChild(makeCardListRow(info.image || `images/alpha_${key}.png`, info.name, info.cost || '-', false, info.effect));
+    }
+    const header2 = document.createElement('div');
+    header2.className = 'cardListSectionHeader';
+    header2.textContent = '専用カード(対応するアルファカードの所持者のみ使用可)';
+    body.appendChild(header2);
+    for (const key of Object.keys(EXCLUSIVE_CARD_INFO)) {
+      const info = EXCLUSIVE_CARD_INFO[key];
+      body.appendChild(makeCardListRow(`images/alpha_${key}.png`, info.name, info.cost, false, info.effect));
+    }
+  }
 }
 
 function makeCardListRow(imgPath, title, cost, black, effect) {
@@ -148,9 +232,11 @@ function makeCardListRow(imgPath, title, cost, black, effect) {
   return row;
 }
 
-$('btnCardCount').onclick = () => { buildCardCountList(); openOverlay('cardCountOverlay'); };
+$('btnCardCount').onclick = () => { buildCardCountList('current'); setCardCountEditable(true); openOverlay('cardCountOverlay'); };
+$('btnCardCountView').onclick = () => { buildCardCountList('current'); setCardCountEditable(false); openOverlay('cardCountOverlay'); };
 $('btnCardCountCancel').onclick = () => closeOverlay('cardCountOverlay');
-$('btnCardCountDefault').onclick = () => buildCardCountList(true);
+$('btnCardCountClose').onclick = () => closeOverlay('cardCountOverlay');
+$('btnCardCountDefault').onclick = () => buildCardCountList('default');
 $('btnCardCountConfirm').onclick = () => {
   const counts = {};
   document.querySelectorAll('.cardCountRow input[type="number"]').forEach((inp) => {
@@ -162,42 +248,87 @@ $('btnCardCountConfirm').onclick = () => {
   closeOverlay('cardCountOverlay');
 };
 
+function setCardCountEditable(editable) {
+  document.querySelectorAll('#cardCountList input[type="number"]').forEach((inp) => { inp.disabled = !editable; });
+  $('chkSecretCards').disabled = !editable;
+  $('btnCardCountCancel').classList.toggle('hidden', !editable);
+  $('btnCardCountDefault').classList.toggle('hidden', !editable);
+  $('btnCardCountConfirm').classList.toggle('hidden', !editable);
+  $('btnCardCountClose').classList.toggle('hidden', editable);
+}
+
 const DEFAULT_COUNTS = { 1:4,2:4,3:4,4:4,5:3,6:3,7:3,8:3,9:2,10:2,11:1,12:1,13:1 };
-function buildCardCountList(useDefault) {
+function buildCardCountList(mode) {
   const list = $('cardCountList');
   list.innerHTML = '';
+  const current = (latestState && latestState.cardCounts) || {};
   for (let no = 1; no <= 13; no++) {
     const row = document.createElement('div');
     row.className = 'cardCountRow';
-    const val = useDefault ? DEFAULT_COUNTS[no] : DEFAULT_COUNTS[no];
+    const val = mode === 'default' ? DEFAULT_COUNTS[no] : (current[no] != null ? current[no] : DEFAULT_COUNTS[no]);
     row.innerHTML = `<span>No.${no} ${cardLabel(no)}</span><input type="number" min="0" max="10" value="${val}" data-no="${no}" />`;
     list.appendChild(row);
   }
+  const secretsOff = current.destruction === 0 && current.luck === 0;
+  $('chkSecretCards').checked = mode === 'default' ? true : !secretsOff;
 }
 
-$('btnGameSettings').onclick = () => { syncTurnLimitFieldState(); openOverlay('gameSettingsOverlay'); };
+$('btnGameSettings').onclick = () => { populateGameSettingsFields(); setGameSettingsEditable(true); syncTurnLimitFieldState(); syncAlphaVisibilityRow(); openOverlay('gameSettingsOverlay'); };
+$('btnGameSettingsView').onclick = () => { populateGameSettingsFields(); setGameSettingsEditable(false); syncAlphaVisibilityRow(); openOverlay('gameSettingsOverlay'); };
 $('chkTurnLimit').onchange = syncTurnLimitFieldState;
+$('selGameMode').onchange = syncAlphaVisibilityRow;
 function syncTurnLimitFieldState() {
   $('turnLimitNum').disabled = !$('chkTurnLimit').checked;
 }
+function syncAlphaVisibilityRow() {
+  const isAlpha = $('selGameMode').value === 'alpha';
+  $('rowAlphaVisibility').classList.toggle('hidden', !isAlpha);
+}
+function populateGameSettingsFields() {
+  const s = (latestState && latestState.settings) || {};
+  $('selGameMode').value = s.mode === 'alpha' ? 'alpha' : 'classic';
+  $('initialLifeNum').value = s.initialLife != null ? s.initialLife : 10;
+  $('chkTurnLimit').checked = !!s.turnLimitEnabled;
+  $('turnLimitNum').value = s.turnLimit != null ? s.turnLimit : 20;
+  $('chkChat').checked = s.chatEnabled !== false;
+  $('chkShowLife').checked = s.showEnemyLife !== false;
+  $('chkShowMana').checked = s.showEnemyMana !== false;
+  $('chkAlphaVisibility').checked = s.alphaCardVisibility !== false;
+  syncTurnLimitFieldState();
+  syncAlphaVisibilityRow();
+}
+function setGameSettingsEditable(editable) {
+  ['selGameMode', 'initialLifeNum', 'chkTurnLimit', 'turnLimitNum', 'chkChat', 'chkShowLife', 'chkShowMana', 'chkAlphaVisibility'].forEach((id) => { $(id).disabled = !editable; });
+  if (!editable) $('turnLimitNum').disabled = true;
+  $('btnGameSettingsCancel').classList.toggle('hidden', !editable);
+  $('btnGameSettingsDefault').classList.toggle('hidden', !editable);
+  $('btnApplySettings').classList.toggle('hidden', !editable);
+  $('btnGameSettingsClose').classList.toggle('hidden', editable);
+}
 $('btnGameSettingsCancel').onclick = () => closeOverlay('gameSettingsOverlay');
+$('btnGameSettingsClose').onclick = () => closeOverlay('gameSettingsOverlay');
 $('btnGameSettingsDefault').onclick = () => {
+  $('selGameMode').value = 'classic';
   $('initialLifeNum').value = 10;
   $('chkTurnLimit').checked = false;
   $('turnLimitNum').value = 20;
   $('chkChat').checked = true;
   $('chkShowLife').checked = true;
   $('chkShowMana').checked = true;
+  $('chkAlphaVisibility').checked = true;
   syncTurnLimitFieldState();
+  syncAlphaVisibilityRow();
 };
 $('btnApplySettings').onclick = () => {
   socket.emit('setGameSettings', {
+    mode: $('selGameMode').value === 'alpha' ? 'alpha' : 'classic',
     initialLife: parseInt($('initialLifeNum').value, 10) || 10,
     turnLimitEnabled: $('chkTurnLimit').checked,
     turnLimit: parseInt($('turnLimitNum').value, 10) || 20,
     chatEnabled: $('chkChat').checked,
     showEnemyLife: $('chkShowLife').checked,
     showEnemyMana: $('chkShowMana').checked,
+    alphaCardVisibility: $('chkAlphaVisibility').checked,
   });
   closeOverlay('gameSettingsOverlay');
 };
@@ -211,7 +342,10 @@ socket.on('errorMsg', (msg) => { alert(msg); });
 
 // ========== ゲーム画面 ==========
 $('btnGameRules').onclick = () => { $('ruleText').textContent = RULE_TEXT; openOverlay('ruleOverlay'); };
-$('btnSurrender').onclick = () => { if (confirm('降参しますか?')) socket.emit('surrender'); };
+$('btnSurrender').onclick = () => {
+  if (latestState && latestState.ended) return;
+  if (confirm('降参しますか?')) socket.emit('surrender');
+};
 $('btnLeaveGame').onclick = () => { socket.emit('leaveRoom'); showScreen('title'); };
 $('btnGameChatSend').onclick = () => sendChat('gameChatInput', 'chatTarget');
 
@@ -287,21 +421,6 @@ function renderPopupCard(card, handList) {
   // コストをプレイヤーが選べるのはNo.7のみ(No.13混沌は常に全マナを消費するため選択不要)
   $('popupCost').classList.toggle('hidden', card.no !== 7);
 
-  const isSearch = card.no === 1; // 探索: 引いた後、手札を1枚山札に戻す
-  const returnSel = $('popupReturnCard');
-  returnSel.classList.toggle('hidden', !isSearch);
-  if (isSearch) {
-    returnSel.innerHTML = '';
-    const remaining = (handList || []).filter((c) => c.instanceId !== card.instanceId);
-    for (const c of remaining) {
-      const opt = document.createElement('option');
-      opt.value = c.instanceId;
-      const rInfo = CARD_INFO[c.no] || {};
-      opt.textContent = `戻す: No.${c.no} ${rInfo.name || c.name}`;
-      returnSel.appendChild(opt);
-    }
-  }
-
   const img = $('popupCardIllustImg');
   const fallback = $('popupCardIllustFallback');
   img.onerror = () => { img.classList.add('hidden'); fallback.classList.remove('hidden'); };
@@ -320,6 +439,16 @@ function renderPopupCard(card, handList) {
       opt.textContent = p.name + (p.id === myId ? '(自分)' : '');
       targetSel.appendChild(opt);
     }
+    // 攻撃・妨害系カードは、誤って自分を対象にしてしまう事故を防ぐため
+    // デフォルトの選択をランダムな相手プレイヤーにしておく(自分に使いたい場合は選び直せる)
+    const ATTACK_TARGET_CARDS = new Set([3, 4, 7, 8, 11]);
+    if (ATTACK_TARGET_CARDS.has(card.no)) {
+      const others = latestState.players.filter((p) => p.alive && p.id !== myId);
+      if (others.length > 0) {
+        const picked = others[Math.floor(Math.random() * others.length)];
+        targetSel.value = picked.id;
+      }
+    }
   }
 }
 
@@ -336,7 +465,6 @@ $('btnPlayFaceUp').onclick = () => {
   if (!selectedCard) return;
   const targetId = $('popupTarget').value || undefined;
   const chosenCost = parseInt($('popupCost').value, 10) || undefined;
-  const returnInstanceId = selectedCard.no === 1 ? ($('popupReturnCard').value || undefined) : undefined;
 
   if (selectedCard.no === 6) {
     if (!targetId) { alert('対象のプレイヤーを選んでください'); return; }
@@ -345,7 +473,7 @@ $('btnPlayFaceUp').onclick = () => {
     return;
   }
 
-  socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId, chosenCost, returnInstanceId });
+  socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId, chosenCost });
   closeOverlay('cardPopup');
   selectedCard = null;
 };
@@ -389,7 +517,7 @@ function renderTradeOverlay(targetHand) {
   }
 }
 
-$('btnTradeCancel').onclick = () => { tradeState = null; closeOverlay('tradeOverlay'); };
+// 取引は相手の手札を見た後のキャンセルを許可しない(情報だけ見て逃げる行為を防止するため)
 $('btnTradeConfirm').onclick = () => {
   if (!tradeState || !tradeState.chosenGiveId || !tradeState.chosenTakeId) {
     alert('渡すカードともらうカードを、それぞれ1枚ずつ選んでください');
@@ -408,6 +536,7 @@ $('btnTradeConfirm').onclick = () => {
 
 // ========== ルーレット演出(No.7 賭博) ==========
 socket.on('rouletteResult', (data) => {
+  rouletteAnimating = true;
   $('rouletteActorName').textContent = data.actorName;
   $('rouletteTargetName').textContent = data.targetName;
   const actorNumEl = $('rouletteActorNumber');
@@ -435,7 +564,91 @@ socket.on('rouletteResult', (data) => {
     targetNumEl.classList.add('landed');
   }, 1200);
 
-  setTimeout(() => { closeOverlay('rouletteOverlay'); }, 3200);
+  setTimeout(() => {
+    closeOverlay('rouletteOverlay');
+    rouletteAnimating = false;
+    if (pendingStateDuringRoulette) {
+      const s = pendingStateDuringRoulette;
+      pendingStateDuringRoulette = null;
+      applyState(s);
+    }
+  }, 3200);
+});
+
+// ========== 探索(No.1): 引いた後に戻すカードを選ぶ ==========
+socket.on('searchReturnPrompt', ({ hand }) => {
+  renderSearchReturnHand(hand);
+  openOverlay('searchReturnOverlay');
+});
+
+function renderSearchReturnHand(hand) {
+  const div = $('searchReturnHand');
+  div.innerHTML = '';
+  for (const c of hand) {
+    const el = makeCardEl(c, { forceShow: true });
+    el.classList.add('handCard');
+    el.onclick = () => {
+      socket.emit('searchReturn', { returnInstanceId: c.instanceId });
+      closeOverlay('searchReturnOverlay');
+    };
+    div.appendChild(el);
+  }
+}
+
+// ========== 裁判(混沌の小規模効果): 投票画面 ==========
+let trialVoted = false;
+socket.on('trialStart', ({ candidates, actingName }) => {
+  trialVoted = false;
+  $('trialDesc').textContent = `${actingName} の混沌により裁判が発動。1人を選んで投票してください(発動者の票は2票分)`;
+  $('trialVoteStatus').textContent = '';
+  renderTrialCandidates(candidates);
+  openOverlay('trialOverlay');
+});
+
+function renderTrialCandidates(candidates) {
+  const div = $('trialCandidates');
+  div.innerHTML = '';
+  for (const c of candidates) {
+    const btn = document.createElement('button');
+    btn.className = 'trialCandidateBtn';
+    btn.innerHTML = `<div class="trialCandidateName">${c.name}</div><div class="trialCandidateStats">♡${c.life} ★${c.mana}</div>`;
+    btn.onclick = () => {
+      if (trialVoted) return;
+      trialVoted = true;
+      socket.emit('castTrialVote', { targetId: c.id });
+      document.querySelectorAll('.trialCandidateBtn').forEach((b) => { b.disabled = true; });
+      btn.classList.add('voted');
+      $('trialVoteStatus').textContent = '投票しました。他のプレイヤーの投票を待っています…';
+    };
+    div.appendChild(btn);
+  }
+}
+
+socket.on('trialVoteUpdate', ({ votedCount, totalVoters }) => {
+  if (!$('trialOverlay').classList.contains('hidden')) {
+    $('trialVoteStatus').textContent = `${votedCount}/${totalVoters}人が投票しました`;
+  }
+});
+
+socket.on('trialEnd', () => {
+  closeOverlay('trialOverlay');
+});
+
+// ========== アルファモード: ゲーム開始前のアルファカード選択 ==========
+socket.on('alphaCardChoice', ({ candidates }) => {
+  const list = $('alphaChoiceList');
+  list.innerHTML = '';
+  for (const c of candidates) {
+    const btn = document.createElement('button');
+    btn.className = 'trialCandidateBtn';
+    btn.innerHTML = `<div class="trialCandidateName">${c.name}</div>`;
+    btn.onclick = () => {
+      socket.emit('pickAlphaCard', { key: c.key });
+      closeOverlay('alphaChoiceOverlay');
+    };
+    list.appendChild(btn);
+  }
+  openOverlay('alphaChoiceOverlay');
 });
 
 // ========== 対戦画面の背景(参加人数に応じて自動切り替え) ==========
@@ -477,7 +690,15 @@ let endHandledForRoom = false;
 let wasStarted = false;
 let prevEnded = false;
 
+let rouletteAnimating = false;
+let pendingStateDuringRoulette = null;
+
 socket.on('state', (state) => {
+  if (rouletteAnimating) { pendingStateDuringRoulette = state; return; }
+  applyState(state);
+});
+
+function applyState(state) {
   const startedFresh = (state.started && !wasStarted) || (prevEnded && !state.ended && state.started);
   wasStarted = state.started;
   prevEnded = state.ended;
@@ -486,6 +707,7 @@ socket.on('state', (state) => {
     endHandledForRoom = false;
     $('victoryOverlay').classList.add('hidden');
     $('loseOverlay').classList.add('hidden');
+    $('gameLog').innerHTML = ''; // 前回の試合のゲームログをクリア
   }
   if (!state.started) {
     $('victoryOverlay').classList.add('hidden');
@@ -502,12 +724,13 @@ socket.on('state', (state) => {
     showScreen('game');
     renderGame(state);
   }
-});
+}
 
 function renderLobby(state) {
   $('lobbyRoomId').textContent = state.roomId;
   const isHost = state.hostId === myId;
   $('hostControls').classList.toggle('hidden', !isHost);
+  $('participantControls').classList.toggle('hidden', isHost);
   $('btnStartGame').classList.toggle('hidden', !isHost);
   $('btnDisbandRoom').classList.toggle('hidden', !isHost);
 
@@ -521,11 +744,41 @@ function renderLobby(state) {
     const li = document.createElement('li');
     li.textContent = p.name;
     if (p.id === state.hostId) li.classList.add('host');
+    if (isHost && p.id !== myId) {
+      li.classList.add('clickablePlayer');
+      li.onclick = () => openPlayerActionOverlay(p.id, p.name);
+    }
     list.appendChild(li);
   }
 
   updateChatTargetSelect($('lobbyChatTarget'), state);
 }
+
+// ========== プレイヤー操作(ゲームマスター専用) ==========
+let playerActionTargetId = null;
+function openPlayerActionOverlay(targetId, targetName) {
+  playerActionTargetId = targetId;
+  $('playerActionName').textContent = targetName;
+  openOverlay('playerActionOverlay');
+}
+$('btnPlayerActionCancel').onclick = () => { playerActionTargetId = null; closeOverlay('playerActionOverlay'); };
+$('btnMakeHost').onclick = () => {
+  if (!playerActionTargetId) return;
+  socket.emit('makeHost', { targetId: playerActionTargetId });
+  playerActionTargetId = null;
+  closeOverlay('playerActionOverlay');
+};
+$('btnKickPlayer').onclick = () => {
+  if (!playerActionTargetId) return;
+  if (!confirm('このプレイヤーを退室させますか?(このルームが解散されるまで再参加できなくなります)')) return;
+  socket.emit('kickPlayer', { targetId: playerActionTargetId });
+  playerActionTargetId = null;
+  closeOverlay('playerActionOverlay');
+};
+socket.on('kicked', () => {
+  alert('ゲームマスターによってルームから退室させられました');
+  showScreen('title');
+});
 
 function updateChatTargetSelect(sel, state) {
   const prev = sel.value;
@@ -570,6 +823,7 @@ function renderGame(state) {
     $('selfName').textContent = me.name;
     $('selfLife').textContent = me.life;
     $('selfMana').textContent = me.mana;
+    $('selfInfo').onclick = () => openFieldZoom(me);
 
     const fieldDiv = $('myField');
     fieldDiv.innerHTML = '';
@@ -595,6 +849,7 @@ function renderGame(state) {
       else el.onclick = () => openCardPopup(c, hand);
       handDiv.appendChild(el);
     }
+    renderExclusiveCardSlot(me, isMyTurn);
 
     // ポップアップが開いていれば内容を最新化
     if (!$('cardPopup').classList.contains('hidden') && selectedCard) {
@@ -621,6 +876,7 @@ function renderGame(state) {
     }
   }
 
+  $('btnSurrender').disabled = !!state.ended;
   $('btnReturnToLobby').classList.toggle('hidden', !(state.ended && state.hostId === myId));
   $('btnNewGame').classList.toggle('hidden', !(state.ended && state.hostId === myId));
 
@@ -646,6 +902,18 @@ function showVictoryOverlay() {
 
 function openFieldZoom(p) {
   $('fieldZoomTitle').textContent = `${p.name} の場`;
+  const alphaDiv = $('fieldZoomAlphaCards');
+  alphaDiv.innerHTML = '';
+  if (p.alphaCards && p.alphaCards.length > 0) {
+    for (const ac of p.alphaCards) {
+      const tag = document.createElement('div');
+      tag.className = 'alphaCardTag';
+      tag.textContent = `★${ac.name}`;
+      alphaDiv.appendChild(tag);
+    }
+  } else if (p.alphaCards) {
+    alphaDiv.innerHTML = '<div class="alphaCardTag none">アルファカードなし</div>';
+  }
   const cardsDiv = $('fieldZoomCards');
   cardsDiv.innerHTML = '';
   if (p.field.length === 0) {
@@ -694,4 +962,13 @@ const RULE_TEXT = `【基本ルール】
 No.3・4・7・8・13。攻撃的な効果が多い。
 
 【シークレットカード】
-No.は0として扱う。「破滅」「豪運」の2種、各1枚のみ封入。`;
+No.は0として扱う。「破滅」「豪運」の2種、各1枚のみ封入。
+
+【アルファモード】
+ゲーム設定の「モード」で「アルファ」を選ぶと、通常のカード(クラシック)に加えて「アルファカード」を使った対戦になる。
+・ゲーム開始時、各プレイヤーに2枚のアルファカード候補が提示され、その中から1枚を選んで持った状態でスタートする。
+・アルファカードはプレイヤーに常時バフ(強化効果)を与える。中には代償(デメリット)を伴うものもある。
+・アルファカードは手札とは別に、そのプレイヤーに紐づいた状態で戦闘中ずっと保持される(手札のように毎ターン出し引きするものではない)。
+・プレイヤーを撃破すると、倒した側はその撃破したプレイヤーが持っていたアルファカードを手に入れることができる。
+・自分や相手のアイコンをタップすると、そのプレイヤーが持つアルファカードを確認できる。ただし「アルファカードの可視化」設定がオフの場合、他プレイヤーのアルファカードは見えない(自分のものは常に確認できる)。
+・「アルファカードの可視化」はゲーム設定内、モードが「アルファ」の時のみ選択できる。`;

@@ -76,8 +76,12 @@
       <div class="roomIdBox" id="lobbyRoomId"></div>
 
       <div id="hostControls" class="hidden hostControlsRow">
-        <button id="btnCardCount" class="pillBtn">カード枚数</button>
-        <button id="btnGameSettings" class="pillBtn">ゲーム設定</button>
+        <button id="btnCardCount" class="pillBtn">カード枚数変更</button>
+        <button id="btnGameSettings" class="pillBtn">ゲーム設定変更</button>
+      </div>
+      <div id="participantControls" class="hidden hostControlsRow">
+        <button id="btnCardCountView" class="pillBtn">カード枚数確認</button>
+        <button id="btnGameSettingsView" class="pillBtn">ゲーム設定確認</button>
       </div>
 
       <button id="btnStartGame" class="bigBtn hidden">ゲーム開始</button>
@@ -113,6 +117,7 @@
       <button id="btnCardCountCancel">キャンセル</button>
       <button id="btnCardCountDefault">デフォルト</button>
       <button id="btnCardCountConfirm">確定</button>
+      <button id="btnCardCountClose" class="hidden">閉じる</button>
     </div>
   </div>
 </div>
@@ -120,16 +125,36 @@
 <!-- ===== ゲーム設定 ===== -->
 <div id="gameSettingsOverlay" class="overlay hidden">
   <div class="overlayPanel">
+    <div class="settingsRow"><span>モード</span>
+      <select id="selGameMode">
+        <option value="classic">クラシック</option>
+        <option value="alpha">アルファ</option>
+      </select>
+    </div>
     <div class="settingsRow"><span>初期ライフ</span><input type="number" id="initialLifeNum" value="10" min="1" max="99" /></div>
     <div class="settingsRow"><span>ターン制</span><input type="checkbox" id="chkTurnLimit" /></div>
     <div class="settingsRow"><span>ターン数</span><input type="number" id="turnLimitNum" value="20" /></div>
     <div class="settingsRow"><span>ゲーム中のチャット</span><input type="checkbox" id="chkChat" checked /></div>
     <div class="settingsRow"><span>敵ライフの表示</span><input type="checkbox" id="chkShowLife" checked /></div>
     <div class="settingsRow"><span>敵マナの表示</span><input type="checkbox" id="chkShowMana" checked /></div>
+    <div class="settingsRow" id="rowAlphaVisibility"><span>アルファカードの可視化</span><input type="checkbox" id="chkAlphaVisibility" checked /></div>
     <div class="joinButtons">
       <button id="btnGameSettingsCancel">キャンセル</button>
       <button id="btnGameSettingsDefault">デフォルト</button>
       <button id="btnApplySettings">確定</button>
+      <button id="btnGameSettingsClose" class="hidden">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== プレイヤー操作(ゲームマスター専用) ===== -->
+<div id="playerActionOverlay" class="overlay hidden">
+  <div class="overlayPanel">
+    <div class="fieldLabel" id="playerActionName"></div>
+    <div class="joinButtons" style="flex-direction:column; align-items:stretch;">
+      <button id="btnMakeHost" class="pillBtn">ゲームマスターにする</button>
+      <button id="btnKickPlayer" class="pillBtnWarn">退室させる</button>
+      <button id="btnPlayerActionCancel">キャンセル</button>
     </div>
   </div>
 </div>
@@ -170,7 +195,10 @@
     </div>
 
     <div class="fieldLabelSmall">自身の手札</div>
-    <div id="myHand" class="myHand"></div>
+    <div class="myHandRow">
+      <div id="exclusiveCardSlot" class="exclusiveCardSlot"></div>
+      <div id="myHand" class="myHand"></div>
+    </div>
 
     <button id="btnReturnToLobby" class="returnLobbyBtn hidden">ルームへ戻る</button>
     <button id="btnNewGame" class="newGameBtn hidden">ニューゲーム</button>
@@ -200,8 +228,27 @@
 <div id="fieldZoomOverlay" class="overlay hidden">
   <div class="overlayPanel">
     <div id="fieldZoomTitle" class="fieldLabel"></div>
+    <div id="fieldZoomAlphaCards" class="alphaCardsRow"></div>
     <div id="fieldZoomCards" class="myField"></div>
     <button id="btnCloseFieldZoom">閉じる</button>
+  </div>
+</div>
+
+<!-- ===== アルファカード選択 ===== -->
+<div id="alphaChoiceOverlay" class="overlay hidden">
+  <div class="overlayPanel wide">
+    <div class="fieldLabel">アルファカードを選択</div>
+    <div class="fieldLabelSmall">ゲーム開始前に、持って行くアルファカードを1枚選んでください</div>
+    <div id="alphaChoiceList" class="alphaChoiceList"></div>
+  </div>
+</div>
+
+<!-- ===== 神罰: 対象選択 ===== -->
+<div id="exclusiveTargetOverlay" class="overlay hidden">
+  <div class="overlayPanel">
+    <div class="fieldLabel">神罰: 対象を選択</div>
+    <div id="exclusiveTargetList" class="alphaChoiceList"></div>
+    <button id="btnExclusiveTargetCancel">キャンセル</button>
   </div>
 </div>
 
@@ -219,7 +266,6 @@
       </div>
       <div class="popupSideControls">
         <select id="popupTarget"></select>
-        <select id="popupReturnCard" class="hidden"></select>
         <input id="popupCost" type="number" min="1" max="7" placeholder="コスト(1〜7)" class="hidden" />
         <button id="btnPlayFaceUp" class="popupActionBtn">表向きに置く</button>
         <button id="btnPlayFaceDown" class="popupActionBtn">裏向きに置く</button>
@@ -237,10 +283,29 @@
     <div class="popupHandStrip" id="tradeTargetHand"></div>
     <div class="fieldLabelSmall">自分の手札から、渡すカードを1枚選んでください</div>
     <div class="popupHandStrip" id="tradeOwnHand"></div>
+    <div class="fieldLabelSmall">選んだら交換を確定してください(取引は途中でキャンセルできません)</div>
     <div class="joinButtons">
-      <button id="btnTradeCancel">キャンセル</button>
       <button id="btnTradeConfirm">交換する</button>
     </div>
+  </div>
+</div>
+
+<!-- ===== 探索: 引いた後に戻すカードを選ぶ ===== -->
+<div id="searchReturnOverlay" class="overlay hidden">
+  <div class="overlayPanel wide">
+    <div class="fieldLabel">探索</div>
+    <div class="fieldLabelSmall">山札から1枚引きました。山札に戻すカードを1枚選んでください</div>
+    <div class="popupHandStrip" id="searchReturnHand"></div>
+  </div>
+</div>
+
+<!-- ===== 裁判: 投票画面 ===== -->
+<div id="trialOverlay" class="overlay hidden">
+  <div class="overlayPanel wide">
+    <div class="fieldLabel">裁判</div>
+    <div class="fieldLabelSmall" id="trialDesc">1人を選んで投票してください</div>
+    <div id="trialCandidates" class="trialCandidates"></div>
+    <div class="fieldLabelSmall" id="trialVoteStatus"></div>
   </div>
 </div>
 
