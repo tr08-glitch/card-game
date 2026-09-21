@@ -49,6 +49,7 @@ input, select {
 }
 
 .screen { position: relative; min-height: 100vh; padding: 1.5em; }
+input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 
 #screen-title {
   background: linear-gradient(90deg, rgba(18,8,28,0.75) 0%, rgba(18,8,28,0.35) 55%, rgba(18,8,28,0.15) 100%),
@@ -276,6 +277,36 @@ input, select {
 .popupActionBtn.cancel { border-color: #7a6a90; color: var(--text-dim); }
 
 .ruleText { font-size: 0.85em; line-height: 1.7; white-space: pre-wrap; max-height: 55vh; overflow-y: auto; }
+
+.rouletteWheelsWrap { display: flex; align-items: center; gap: 2em; justify-content: center; padding: 2em 3em; }
+.rouletteSide { display: flex; flex-direction: column; align-items: center; gap: 0.6em; }
+.rouletteName { font-size: 1.1em; color: var(--accent-gold); }
+.rouletteNumber {
+  width: 110px; height: 110px; border-radius: 50%;
+  border: 4px solid var(--accent-gold); background: radial-gradient(circle, #3a2456, #1c1130);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 2.6em; font-weight: bold; color: var(--text-main);
+  box-shadow: 0 0 20px rgba(224, 185, 90, 0.4);
+}
+.rouletteNumber.spinning { animation: roulette-pulse 0.15s linear infinite; }
+.rouletteNumber.landed { border-color: #fff; box-shadow: 0 0 30px rgba(255, 255, 255, 0.7); }
+.rouletteVs { font-size: 1.4em; color: var(--accent-red); font-weight: bold; }
+@keyframes roulette-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.06); } 100% { transform: scale(1); } }
+.cardListBody { white-space: normal; }
+.cardListRow {
+  display: flex; gap: 0.8em; align-items: flex-start; padding: 0.6em 0;
+  border-bottom: 1px solid #3a2a52;
+}
+.cardListRow:last-child { border-bottom: none; }
+.cardListThumb {
+  width: 48px; height: 48px; border-radius: 6px; flex-shrink: 0;
+  background-size: cover; background-position: center; border: 1px solid var(--border-gold);
+}
+.cardListInfo { flex: 1; }
+.cardListName { font-weight: bold; color: var(--accent-gold); }
+.cardListName.black { color: #e08a8a; }
+.cardListCost { font-size: 0.8em; color: var(--text-dim); margin-left: 0.5em; }
+.cardListEffect { font-size: 0.85em; margin-top: 0.2em; }
 
 .startGameHint { font-size: 0.8em; color: var(--text-dim); text-align: center; margin-top: -0.4em; }
 

@@ -14,7 +14,7 @@
 
   <div class="titleLayout">
     <h1 class="gameTitle">混沌</h1>
-    <input id="nameInput" class="nameInput" placeholder="プレイヤー名(1〜10文字)" maxlength="10" />
+    <input id="nameInput" class="nameInput" placeholder="プレイヤー名(1〜15文字)" maxlength="15" />
 
     <div class="titleMenu">
       <button id="btnAiBattle" class="menuBtn">AI戦</button>
@@ -57,6 +57,7 @@
       <button id="btnCloseTitleSettings" class="closeX">×</button>
       <div class="fieldLabel">設定</div>
       <button id="btnTitleRules" class="menuBtn" style="width:100%">ルール</button>
+      <button id="btnTitleCardList" class="menuBtn" style="width:100%">カード一覧</button>
     </div>
   </div>
 </div>
@@ -65,6 +66,7 @@
 <div id="screen-lobby" class="screen hidden">
   <div class="lobbyTopRight">
     <button id="btnShowRules" class="pillBtn">ルール</button>
+    <button id="btnLobbyCardList" class="pillBtn">カード一覧</button>
     <button id="btnLobbySettingsIcon" class="iconBtn" title="設定">⚙</button>
   </div>
 
@@ -118,6 +120,7 @@
 <!-- ===== ゲーム設定 ===== -->
 <div id="gameSettingsOverlay" class="overlay hidden">
   <div class="overlayPanel">
+    <div class="settingsRow"><span>初期ライフ</span><input type="number" id="initialLifeNum" value="10" min="1" max="99" /></div>
     <div class="settingsRow"><span>ターン制</span><input type="checkbox" id="chkTurnLimit" /></div>
     <div class="settingsRow"><span>ターン数</span><input type="number" id="turnLimitNum" value="20" /></div>
     <div class="settingsRow"><span>ゲーム中のチャット</span><input type="checkbox" id="chkChat" checked /></div>
@@ -143,6 +146,7 @@
 
     <div class="topRightButtons">
       <button id="btnGameRules" class="pillBtn">ルール</button>
+      <button id="btnGameCardList" class="pillBtn">カード一覧</button>
       <button id="btnSurrender" class="pillBtnWarn">降参</button>
       <button id="btnLeaveGame" class="pillBtnWarn">退室</button>
     </div>
@@ -181,8 +185,8 @@
 
   <div id="gameLog" class="gameLog"></div>
 
-  <button id="btnToggleChat" class="chatToggleBtn">表示</button>
-  <div id="chatPanel" class="chatPanel hidden">
+  <button id="btnToggleChat" class="chatToggleBtn">×</button>
+  <div id="chatPanel" class="chatPanel">
     <div id="gameChat" class="chatBox"></div>
     <div class="chatRow">
       <select id="chatTarget" class="chatTargetSelect"><option value="all">全体</option></select>
@@ -215,6 +219,7 @@
       </div>
       <div class="popupSideControls">
         <select id="popupTarget"></select>
+        <select id="popupReturnCard" class="hidden"></select>
         <input id="popupCost" type="number" min="1" max="7" placeholder="コスト(1〜7)" class="hidden" />
         <button id="btnPlayFaceUp" class="popupActionBtn">表向きに置く</button>
         <button id="btnPlayFaceDown" class="popupActionBtn">裏向きに置く</button>
@@ -224,11 +229,49 @@
   </div>
 </div>
 
+<!-- ===== 取引: 相手のカードを見て交換 ===== -->
+<div id="tradeOverlay" class="overlay hidden">
+  <div class="overlayPanel wide">
+    <div class="fieldLabel" id="tradeTitle">取引</div>
+    <div class="fieldLabelSmall">相手の手札から、もらうカードを1枚選んでください</div>
+    <div class="popupHandStrip" id="tradeTargetHand"></div>
+    <div class="fieldLabelSmall">自分の手札から、渡すカードを1枚選んでください</div>
+    <div class="popupHandStrip" id="tradeOwnHand"></div>
+    <div class="joinButtons">
+      <button id="btnTradeCancel">キャンセル</button>
+      <button id="btnTradeConfirm">交換する</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== ルーレット演出 ===== -->
+<div id="rouletteOverlay" class="overlay hidden">
+  <div class="overlayPanel rouletteWheelsWrap">
+    <div class="rouletteSide">
+      <div class="rouletteName" id="rouletteActorName"></div>
+      <div class="rouletteNumber" id="rouletteActorNumber">?</div>
+    </div>
+    <div class="rouletteVs">VS</div>
+    <div class="rouletteSide">
+      <div class="rouletteName" id="rouletteTargetName"></div>
+      <div class="rouletteNumber" id="rouletteTargetNumber">?</div>
+    </div>
+  </div>
+</div>
+
 <div id="ruleOverlay" class="overlay hidden">
   <div class="overlayPanel wide">
     <div class="fieldLabel">ルール</div>
     <div id="ruleText" class="ruleText"></div>
     <button id="btnCloseRules">閉じる</button>
+  </div>
+</div>
+
+<div id="cardListOverlay" class="overlay hidden">
+  <div class="overlayPanel wide">
+    <div class="fieldLabel">カード一覧</div>
+    <div id="cardListBody" class="ruleText cardListBody"></div>
+    <button id="btnCloseCardList">閉じる</button>
   </div>
 </div>
 
