@@ -33,20 +33,19 @@ const SECRET_INFO = {
 const ALPHA_CARD_INFO = {
   blessing: { name: '加護', cost: '-', effect: 'メリット:初期ライフ+5。自分のターンの終わりにライフ+1(初期ライフを超えない)。デメリット:なし。' },
   toughness: { name: '強靭', cost: '-', effect: '初期ライフ+7。受けるダメージを最終的に-1する。' },
-  training: { name: '鍛錬', cost: '-', effect: '自分の場の裏向きカード2枚につき、与えるダメージが最終的に+1。初期ライフ+3。' },
+  training: { name: '鍛錬', cost: '-', effect: '自分の場の裏向きカード1.5枚につき、与えるダメージが最終的に+1(例:裏向き2枚で+1)。初期ライフ+3。' },
   magicSword: { name: '魔剣', cost: '-', effect: '与えるダメージ+3。プレイヤーにダメージを与えると反動で自分が1ダメージを受ける(1回のカード使用につき反動は1回のみ)。' },
   wings: { name: '翼', cost: '-', effect: '手札の上限が1枚増える(ゲーム開始時から常に3枚。輪廻などで引き直した後も3枚になる)。その代わり、すべてのカードの最終コストが+1になる。' },
   muscle: { name: '筋肉', cost: '-', effect: '与えるダメージ+2、受けるダメージ-2、初期ライフ+7。その代わり手札の上限が1枚減る(常に1枚)。' },
   berserk: { name: '狂化', cost: '-', effect: '初期ライフ+13、与えるダメージ+2。その代わりライフが一切回復しなくなる(輪廻による初期ライフへのリセットは回復扱いではないため可能)。' },
-  corruption: { name: '堕落', cost: '-', effect: '使った黒いカード2枚につき与ダメージ+1。黒いカードを使うとライフ+2。裏向きに置いた時、または黒いカード以外を使った時はライフ-1。' },
+  corruption: { name: '堕落', cost: '-', effect: '使った黒いカード2枚につき与ダメージ+1。黒いカードを使うとライフ+2(この回復は初期ライフを超えられる)。裏向きに置いた時、または黒いカード以外を使った時はライフ-1。' },
   apostle: { name: '使徒', cost: '-', effect: '初期ライフ+3。専用カード「神罰」が使えるようになる。黒いカードを使うとライフ-4。' },
-  curse: { name: '呪詛', cost: '-', effect: '初期ライフ+3。自分のターンの終わりにランダムな敵1人に2ダメージ。その代わり受けるダメージ+1。' },
-  gambler: { name: '賭酔', cost: '-', effect: '専用カード「博打」が使えるようになる。ルーレットを使うカード全般で自分の出目+1。その代わりマナが自然回復しなくなる。' },
+  curse: { name: '呪詛', cost: '-', effect: '初期ライフ+3。自分のターンの終わりに、ランダムな敵1人へ固定2ダメージ、さらに別のランダムな敵1人へ固定1ダメージ(どちらも補正を受けない)。その代わり受けるダメージ+1。' },
+  gambler: { name: '賭酔', cost: '-', effect: '自分のターンの初めに自動で「博打」の効果が発動する(全員でルーレットを回し、自分の出目-全員の平均値の分だけマナが増減する)。ルーレットを使うカード全般で自分の出目+1。その代わりマナが自然回復しなくなる。' },
 };
 
 const EXCLUSIVE_CARD_INFO = {
-  divinePunishment: { name: '神罰', cost: 4, effect: '敵プレイヤー1人に 3+(使った黒いカード2枚につき1) のダメージを与える。使徒でのみ使用可。' },
-  gamble: { name: '博打', cost: 0, effect: '全プレイヤーでルーレットを回し、(自分の出目-全員の平均値)分だけマナが増減する(マナがマイナスになることもある)。自分の出目には+2。賭酔でのみ使用可。' },
+  divinePunishment: { name: '神罰', cost: 4, effect: '敵プレイヤー1人に 3+(相手が使った黒いカード2枚につき1) のダメージを与える。使徒でのみ使用可。' },
 };
 
 function renderExclusiveCardSlot(me, isMyTurn) {
@@ -112,6 +111,7 @@ function closeOverlay(id) { $(id).classList.add('hidden'); }
 
 // ========== タイトル画面 ==========
 $('btnTitleMenuRules').onclick = () => { $('ruleText').textContent = RULE_TEXT; openOverlay('ruleOverlay'); };
+$('btnTitleMenuCardList').onclick = () => { buildCardListOverlay(); openOverlay('cardListOverlay'); };
 
 $('btnCreateRoom').onclick = () => {
   const name = $('nameInput').value.trim();
@@ -293,12 +293,13 @@ function populateGameSettingsFields() {
   $('chkChat').checked = s.chatEnabled !== false;
   $('chkShowLife').checked = s.showEnemyLife !== false;
   $('chkShowMana').checked = s.showEnemyMana !== false;
+  $('chkShowHandCount').checked = s.showEnemyHandCount !== false;
   $('chkAlphaVisibility').checked = s.alphaCardVisibility !== false;
   syncTurnLimitFieldState();
   syncAlphaVisibilityRow();
 }
 function setGameSettingsEditable(editable) {
-  ['selGameMode', 'initialLifeNum', 'chkTurnLimit', 'turnLimitNum', 'chkChat', 'chkShowLife', 'chkShowMana', 'chkAlphaVisibility'].forEach((id) => { $(id).disabled = !editable; });
+  ['selGameMode', 'initialLifeNum', 'chkTurnLimit', 'turnLimitNum', 'chkChat', 'chkShowLife', 'chkShowMana', 'chkShowHandCount', 'chkAlphaVisibility'].forEach((id) => { $(id).disabled = !editable; });
   if (!editable) $('turnLimitNum').disabled = true;
   $('btnGameSettingsCancel').classList.toggle('hidden', !editable);
   $('btnGameSettingsDefault').classList.toggle('hidden', !editable);
@@ -315,6 +316,7 @@ $('btnGameSettingsDefault').onclick = () => {
   $('chkChat').checked = true;
   $('chkShowLife').checked = true;
   $('chkShowMana').checked = true;
+  $('chkShowHandCount').checked = true;
   $('chkAlphaVisibility').checked = true;
   syncTurnLimitFieldState();
   syncAlphaVisibilityRow();
@@ -328,6 +330,7 @@ $('btnApplySettings').onclick = () => {
     chatEnabled: $('chkChat').checked,
     showEnemyLife: $('chkShowLife').checked,
     showEnemyMana: $('chkShowMana').checked,
+    showEnemyHandCount: $('chkShowHandCount').checked,
     alphaCardVisibility: $('chkAlphaVisibility').checked,
   });
   closeOverlay('gameSettingsOverlay');
@@ -441,7 +444,7 @@ function renderPopupCard(card, handList) {
     }
     // 攻撃・妨害系カードは、誤って自分を対象にしてしまう事故を防ぐため
     // デフォルトの選択をランダムな相手プレイヤーにしておく(自分に使いたい場合は選び直せる)
-    const ATTACK_TARGET_CARDS = new Set([3, 4, 7, 8, 11]);
+    const ATTACK_TARGET_CARDS = new Set([3, 4, 6, 7, 8, 11]);
     if (ATTACK_TARGET_CARDS.has(card.no)) {
       const others = latestState.players.filter((p) => p.alive && p.id !== myId);
       if (others.length > 0) {
@@ -810,7 +813,7 @@ function renderGame(state) {
       <div class="oppLifeManaTag"><span class="lifeTag">♡${p.life == null ? '?' : p.life}</span> <span class="manaTag">★${p.mana == null ? '?' : p.mana}</span></div>
       <div class="oppAvatar">${p.shielded ? '🛡' : '🙂'}</div>
       <div class="oppName">${p.name}</div>
-      <div class="oppHandCount">手札:${p.handCount}枚</div>
+      <div class="oppHandCount">手札:${p.handCount == null ? '?' : p.handCount}枚</div>
       <div class="oppFieldMini">場:${p.field.length}枚</div>
     `;
     if (p.alive) {
