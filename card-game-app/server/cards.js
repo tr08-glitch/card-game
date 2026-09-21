@@ -128,6 +128,7 @@ function gainMana(room, targetId, amount, log) {
 // ------------------------------------------------------------
 function resolveEffect(room, actingId, card, opts = {}) {
   const log = [];
+  let extra = null;
   const actor = room.players[actingId];
   const no = card.secretKey ? card.secretKey : card.no;
 
@@ -174,14 +175,19 @@ function resolveEffect(room, actingId, card, opts = {}) {
       log.push(`${actor.name} は防御態勢に入った`);
       break;
     }
-    case 6: { // 取引
+    case 6: { // 取引: 相手の手札から1枚選び、自分の手札1枚と交換する
       const t = opts.targetId;
-      if (t && room.players[t]) {
-        // 単純化: 手札枚数・コスト合計が近くなるよう、双方の手札を丸ごと入れ替える簡易実装
-        const tmp = actor.hand;
-        actor.hand = room.players[t].hand;
-        room.players[t].hand = tmp;
-        log.push(`${actor.name} と ${room.players[t].name} は手札を交換した`);
+      if (t && room.players[t] && opts.tradeGiveInstanceId && opts.tradeTakeInstanceId) {
+        const target = room.players[t];
+        const giveIdx = actor.hand.findIndex((c) => c.instanceId === opts.tradeGiveInstanceId);
+        const takeIdx = target.hand.findIndex((c) => c.instanceId === opts.tradeTakeInstanceId);
+        if (giveIdx >= 0 && takeIdx >= 0) {
+          const [giveCard] = actor.hand.splice(giveIdx, 1);
+          const [takeCard] = target.hand.splice(takeIdx, 1);
+          actor.hand.push(takeCard);
+          target.hand.push(giveCard);
+          log.push(`${actor.name} と ${target.name} はカードを1枚ずつ交換した`);
+        }
       }
       break;
     }
@@ -192,6 +198,7 @@ function resolveEffect(room, actingId, card, opts = {}) {
         const selfRoll = Math.min(10, Math.floor(Math.random() * 10) + 1 + 2); // +2アドバンテージ
         const targetRoll = Math.floor(Math.random() * 10) + 1;
         log.push(`${actor.name} のルーレット: ${selfRoll} / ${room.players[t].name} のルーレット: ${targetRoll}`);
+        extra = { type: 'roulette', actorId: actingId, actorName: actor.name, actorRoll: selfRoll, targetIdRoll: t, targetName: room.players[t].name, targetRoll };
         const diff = selfRoll - targetRoll;
         if (diff === 0) {
           dealDamage(room, actingId, cost, log);
@@ -200,13 +207,15 @@ function resolveEffect(room, actingId, card, opts = {}) {
         } else if (diff > 0) {
           const dmg = ceilDiv((diff * cost) / 6);
           dealDamage(room, t, dmg, log);
-          gainMana(room, actingId, diff, log);
-          loseMana(room, t, diff, log);
+          const manaMove = Math.min(ceilDiv(diff / 2), room.players[t].mana);
+          loseMana(room, t, manaMove, log);
+          gainMana(room, actingId, manaMove, log);
         } else {
           const dmg = ceilDiv((-diff * cost) / 6);
           dealDamage(room, actingId, dmg, log);
-          gainMana(room, t, -diff, log);
-          loseMana(room, actingId, -diff, log);
+          const manaMove = Math.min(ceilDiv(-diff / 2), actor.mana);
+          loseMana(room, actingId, manaMove, log);
+          gainMana(room, t, manaMove, log);
         }
       }
       break;
@@ -233,9 +242,8 @@ function resolveEffect(room, actingId, card, opts = {}) {
       log.push(`${actor.name} はライフ・マナをリセットし、手札を入れ替えた`);
       break;
     }
-    case 10: { // 反逆
+    case 10: { // 反逆(見た目は裏向きカードとして扱うため、効果ログは出さない)
       actor.reflectUntilTurnStart = true;
-      log.push(`${actor.name} は反逆の構えを取った(見た目は裏向きカード)`);
       break;
     }
     case 11: { // 深淵
@@ -244,6 +252,7 @@ function resolveEffect(room, actingId, card, opts = {}) {
         if (blackIdx === -1) break;
         const [drawn] = room.deck.splice(blackIdx, 1);
         log.push(`${actor.name} は深淵から黒いカード「${drawn.name}」を引いた`);
+        actor.field.push({ instanceId: drawn.instanceId, no: drawn.no, name: drawn.name, faceUp: true, misfired: false });
         const subOpts = { targetId: opts.subTargets ? opts.subTargets[i] : opts.targetId, chosenCost: drawn.baseCost || 3 };
         const sub = resolveEffect(room, actingId, drawn, subOpts);
         log.push(...sub.log);
@@ -251,12 +260,11 @@ function resolveEffect(room, actingId, card, opts = {}) {
       break;
     }
     case 12: { // 浄化
-      const usedCount = (room.blackCardUsage[actingId] || 0);
       for (const p of alivePlayers(room)) {
-        const dmg = room.blackCardUsage[p.id] || 0;
-        if (dmg > 0) dealDamage(room, p.id, dmg, log);
+        const usedCount = room.blackCardUsage[p.id] || 0;
+        if (usedCount > 0) dealDamage(room, p.id, usedCount * 2, log);
         const blackInHand = p.hand.filter((c) => c.isBlack).length;
-        if (blackInHand > 0) loseMana(room, p.id, blackInHand * 3, log);
+        if (blackInHand > 0) loseMana(room, p.id, blackInHand * 2, log);
       }
       break;
     }
@@ -274,20 +282,20 @@ function resolveEffect(room, actingId, card, opts = {}) {
       const pick = Math.floor(Math.random() * 4);
       const targets = alivePlayers(room);
       if (scale === 'small') {
-        if (pick === 0) { for (const p of targets) dealDamage(room, p.id, p.id === actingId ? 2 : 3, log); for (const p of targets) loseMana(room, p.id, 2, log); }
-        else if (pick === 1) { for (let i = 0; i < 4; i++) { const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, 2, log); } }
-        else if (pick === 2) { const hands = targets.map((p) => p.hand); for (let i = 0; i < targets.length; i++) targets[i].hand = hands[(i + 1) % hands.length]; log.push('全プレイヤーの手札が入れ替わった'); }
-        else { for (const p of targets) healLife(room, p.id, 1, log, p.initialLife); for (const p of targets) loseMana(room, p.id, 1, log); }
+        if (pick === 0) { log.push('【つむじ風】が発動'); for (const p of targets) dealDamage(room, p.id, p.id === actingId ? 2 : 3, log); for (const p of targets) loseMana(room, p.id, 2, log); }
+        else if (pick === 1) { log.push('【落石】が発動'); for (let i = 0; i < 4; i++) { const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, 2, log); } }
+        else if (pick === 2) { log.push('【混乱】が発動'); const hands = targets.map((p) => p.hand); for (let i = 0; i < targets.length; i++) targets[i].hand = hands[(i + 1) % hands.length]; log.push('全プレイヤーの手札が入れ替わった'); }
+        else { log.push('【裁判】が発動'); for (const p of targets) healLife(room, p.id, 1, log, p.initialLife); for (const p of targets) loseMana(room, p.id, 1, log); }
       } else if (scale === 'medium') {
-        if (pick === 0) { for (const p of targets) { loseMana(room, p.id, 3, log); dealDamage(room, p.id, p.id === actingId ? 4 : 5, log); } const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, 3, log); }
-        else if (pick === 1) { for (let i = 0; i < 4; i++) { const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, 4, log); } }
-        else if (pick === 2) { for (const p of targets) healLife(room, p.id, 5, log, p.initialLife); }
-        else { const roll = Math.floor(Math.random() * 10) + 1; const dmg = ceilDiv((targets.length * roll) / 3); for (const p of targets) dealDamage(room, p.id, p.id === actingId ? Math.max(0, dmg - 1) : dmg, log); }
+        if (pick === 0) { log.push('【竜巻】が発動'); for (const p of targets) { loseMana(room, p.id, 3, log); dealDamage(room, p.id, p.id === actingId ? 4 : 5, log); } const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, 3, log); }
+        else if (pick === 1) { log.push('【隕石】が発動'); for (let i = 0; i < 4; i++) { const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, 4, log); } }
+        else if (pick === 2) { log.push('【命水】が発動'); for (const p of targets) healLife(room, p.id, 5, log, null); }
+        else { log.push('【疫病】が発動'); const roll = Math.floor(Math.random() * 10) + 1; const dmg = ceilDiv((targets.length * roll) / 3); for (const p of targets) dealDamage(room, p.id, p.id === actingId ? Math.max(0, dmg - 1) : dmg, log); }
       } else {
-        if (pick === 0) { for (const p of targets) p.life = Math.max(1, Math.min(3, Math.floor(Math.random() * 3) + 1)); log.push('テンペスト:全員のライフが1〜3のいずれかになった'); }
-        else if (pick === 1) { for (let i = 0; i < 10; i++) { const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, Math.floor(Math.random() * 3) + 1, log); } }
-        else if (pick === 2) { room.chaosBlackBias = true; for (const p of targets) { room.deck.push(...p.hand); p.hand = []; } shuffle(room.deck); for (const p of targets) { const upper = 1 + Math.floor(Math.random() * 4); for (let i = 0; i < upper && room.deck.length > 0; i++) p.hand.push(room.deck.pop()); healLife(room, p.id, 7 - p.hand.length, log, p.initialLife); } }
-        else { for (const p of targets) { const faceDownCount = p.field.filter((f) => !f.faceUp).length; dealDamage(room, p.id, Math.max(0, 12 - faceDownCount), log); } }
+        if (pick === 0) { log.push('【テンペスト】が発動'); for (const p of targets) p.life = Math.max(1, Math.min(3, Math.floor(Math.random() * 3) + 1)); log.push('全員のライフが1〜3のいずれかになった'); }
+        else if (pick === 1) { log.push('【スターレイン】が発動'); for (let i = 0; i < 10; i++) { const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, Math.floor(Math.random() * 3) + 1, log); } }
+        else if (pick === 2) { log.push('【アノマリー】が発動'); room.chaosBlackBias = true; for (const p of targets) { room.deck.push(...p.hand); p.hand = []; } shuffle(room.deck); for (const p of targets) { const upper = 1 + Math.floor(Math.random() * 4); for (let i = 0; i < upper && room.deck.length > 0; i++) p.hand.push(room.deck.pop()); healLife(room, p.id, 7 - p.hand.length, log, p.initialLife); } }
+        else { log.push('【ラグナロク】が発動'); for (const p of targets) { const faceDownCount = p.field.filter((f) => !f.faceUp).length; dealDamage(room, p.id, Math.max(0, 12 - faceDownCount), log); } }
       }
       break;
     }
@@ -310,14 +318,15 @@ function resolveEffect(room, actingId, card, opts = {}) {
         }
         shuffle(room.deck);
       }
-      actor.reflectUntilTurnStart = true;
+      actor.shielded = true;
+      actor.shieldUntilTurnStart = true;
       log.push(`${actor.name} は豪運を発動した`);
       break;
     }
     default:
       log.push('未実装の効果です');
   }
-  return { log };
+  return { log, extra };
 }
 
 module.exports = {
