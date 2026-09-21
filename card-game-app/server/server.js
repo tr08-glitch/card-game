@@ -57,6 +57,7 @@ function createRoom(hostSocketId, hostName) {
       chatEnabled: true,
       showEnemyLife: true,
       showEnemyMana: true,
+      showEnemyHandCount: true,
       initialLife: DEFAULT_INITIAL_LIFE,
       alphaCardVisibility: true, // アルファモード時のみ意味を持つ
     },
@@ -193,13 +194,14 @@ function publicPlayerView(room, player, viewerId) {
   const viewerIsSpectator = room.players[viewerId] && room.players[viewerId].spectator;
   const showLife = isSelf || viewerIsSpectator || room.settings.showEnemyLife;
   const showMana = isSelf || viewerIsSpectator || room.settings.showEnemyMana;
+  const showHandCount = isSelf || viewerIsSpectator || room.settings.showEnemyHandCount !== false;
   const showAlpha = isSelf || viewerIsSpectator || room.settings.alphaCardVisibility !== false;
   return {
     id: player.id,
     name: player.name,
     life: showLife ? player.life : null,
     mana: showMana ? player.mana : null,
-    handCount: player.hand.length,
+    handCount: showHandCount ? player.hand.length : null,
     hand: isSelf ? player.hand : undefined, // 自分の手札のみ中身を送る
     field: player.field.map((f) => {
       const visibleAsFaceUp = f.faceUp && !f.stealth;
@@ -241,11 +243,53 @@ function broadcastState(room) {
   }
 }
 
+function findLogSubject(room, line) {
+  let best = null;
+  for (const id of room.order) {
+    const p = room.players[id];
+    if (p && line.indexOf(p.name) === 0) {
+      if (!best || p.name.length > best.name.length) best = p;
+    }
+  }
+  return best;
+}
+
+function redactSensitiveNumbers(line, hideLife, hideMana) {
+  let out = line;
+  if (hideLife) {
+    out = out.replace(/(ダメージを受けた\(残りライフ\s*)\d+(\))/g, '$1?$2');
+    out = out.replace(/(ライフが\s*)-?\d+(\s*(?:増加|減少|回復)した\([^)]*現在\s*)\d+(\))/g, '$1?$2?$3');
+  }
+  if (hideMana) {
+    out = out.replace(/(マナが\s*)\d+(\s*(?:増加|減少)した\(現在\s*)\d+(\))/g, '$1?$2?$3');
+    out = out.replace(/(コスト)\d+/g, '$1?');
+    out = out.replace(/(マナ)\d+(消費)/g, '$1?$2');
+  }
+  return out;
+}
+
 function pushLog(room, lines) {
   for (const line of lines) {
     room.chatLog.push({ system: true, text: line, ts: Date.now() });
   }
-  io.to(room.roomId).emit('systemLog', lines);
+  for (const id of room.order) {
+    const viewer = room.players[id];
+    if (!viewer || viewer.connected === false) continue;
+    const sock = io.sockets.sockets.get(id);
+    if (!sock) continue;
+    const viewerIsSpectator = viewer.spectator;
+    const hideLife = !viewerIsSpectator && room.settings && room.settings.showEnemyLife === false;
+    const hideMana = !viewerIsSpectator && room.settings && room.settings.showEnemyMana === false;
+    let outLines = lines;
+    if (hideLife || hideMana) {
+      outLines = lines.map((line) => {
+        const subject = findLogSubject(room, line);
+        if (!subject || subject.id === id) return line; // 自分自身についての行はそのまま
+        return redactSensitiveNumbers(line, hideLife, hideMana);
+      });
+    }
+    sock.emit('systemLog', outLines);
+  }
 }
 
 function checkGameEnd(room) {
@@ -284,7 +328,8 @@ function advanceTurn(room, io) {
       const heal = alphaSum(finishing, 'endTurnHeal');
       if (heal > 0) {
         const before = finishing.life;
-        finishing.life = Math.min(finishing.life + heal, finishing.initialLife);
+        const capped = Math.min(finishing.life + heal, finishing.initialLife);
+        finishing.life = Math.max(finishing.life, capped);
         if (finishing.life > before) {
           pushLog(room, [`${finishing.name} のライフが ${finishing.life - before} 回復した(加護、現在 ${finishing.life})`]);
         }
@@ -296,8 +341,16 @@ function advanceTurn(room, io) {
           const target = enemies[Math.floor(Math.random() * enemies.length)];
           const log = [];
           log.push(`${finishing.name} の呪詛が発動した`);
-          dealDamage(room, target.id, curseDmg, log, finishingId);
+          dealDamage(room, target.id, curseDmg, log, finishingId, false, true); // 固定2ダメージ(補正を受けない)
           pushLog(room, log);
+        }
+        // 追加効果: 固定2ダメージとは別に、ランダムな敵1人へさらに固定1ダメージ
+        const enemies2 = alivePlayers(room).filter((p) => p.id !== finishingId);
+        if (enemies2.length > 0) {
+          const target2 = enemies2[Math.floor(Math.random() * enemies2.length)];
+          const log2 = [];
+          dealDamage(room, target2.id, 1, log2, finishingId, false, true); // 固定1ダメージ(補正を受けない)
+          pushLog(room, log2);
         }
       }
     }
@@ -341,6 +394,12 @@ function advanceTurn(room, io) {
     const drawn = room.deck.pop();
     p.hand.push(drawn);
     p.turnDrawnCardId = drawn.instanceId;
+  }
+  if (alphaSum(p, 'turnStartGamble') > 0 && p.alive) {
+    // 賭酔: 自分のターンの初めに自動で「博打」を行う
+    const gambleLog = [];
+    resolveGamble(room, p.id, gambleLog);
+    pushLog(room, gambleLog);
   }
   broadcastState(room);
   if (checkGameEnd(room)) broadcastState(room);
@@ -564,13 +623,14 @@ io.on('connection', (socket) => {
       const used = room.blackCardUsage[socket.id] || 0;
       cost = Math.ceil(used * 1.5);
     }
-    if (card.no !== 13) cost += alphaSum(actor, 'costPenalty'); // 翼: 全カードの最終コスト+1
+    if (card.no !== 13 && card.no !== 10) cost += alphaSum(actor, 'costPenalty'); // 翼: 全カードの最終コスト+1(反逆は発動時に消費マナで正体がバレないよう常にコスト0のまま)
 
     const isStealth = card.no === 10; // 反逆: 発動成功時は場では裏向きに見える
     const fieldEntry = { instanceId: card.instanceId, no: card.no, name: card.name, faceUp: true, misfired: false };
 
     if (cost == null) cost = 0;
-    if (actor.mana < cost) {
+    const revoltInsufficient = card.no === 10 && actor.mana < 3; // 反逆: コストは0だが、マナ3未満だと不発になる
+    if ((cost > 0 && actor.mana < cost) || revoltInsufficient) {
       fieldEntry.misfired = true;
       actor.field.push(fieldEntry);
       pushLog(room, [...randomNotice, `${actor.name} は「${card.name}」を表向きで出したが、マナ不足で不発だった`]);
@@ -585,7 +645,7 @@ io.on('connection', (socket) => {
     if (card.isBlack) {
       room.blackCardUsage[socket.id] = (room.blackCardUsage[socket.id] || 0) + 1;
       if (actor.alphaCards.includes('corruption')) {
-        applyLifeDelta(room, socket.id, alphaSum(actor, 'blackUseLifeGain'), '堕落(黒いカード使用)', alphaCardLog);
+        applyLifeDelta(room, socket.id, alphaSum(actor, 'blackUseLifeGain'), '堕落(黒いカード使用)', alphaCardLog, true);
       }
       if (actor.alphaCards.includes('apostle')) {
         applyLifeDelta(room, socket.id, -alphaSum(actor, 'blackUseLifeLoss'), '使徒(闇のカード使用)', alphaCardLog);

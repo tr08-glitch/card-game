@@ -9,7 +9,7 @@
 const ALPHA_CARDS = {
   blessing: { name: '加護', lifeBonus: 5, endTurnHeal: 1 },
   toughness: { name: '強靭', lifeBonus: 7, damageReduction: 1 },
-  training: { name: '鍛錬', lifeBonus: 3, damagePerTwoFaceDown: 1 },
+  training: { name: '鍛錬', lifeBonus: 3, damagePerFaceDown15: 1 },
   magicSword: { name: '魔剣', damageBonus: 3, recoilPerUse: 1 },
   wings: { name: '翼', extraHand: 1, costPenalty: 1 },
   muscle: { name: '筋肉', lifeBonus: 7, damageBonus: 2, damageReduction: 2, extraHand: -1 },
@@ -17,12 +17,11 @@ const ALPHA_CARDS = {
   corruption: { name: '堕落', damagePerTwoBlackUsed: 1, blackUseLifeGain: 2, otherUseLifeLoss: 1 },
   apostle: { name: '使徒', lifeBonus: 3, exclusiveCard: 'divinePunishment', blackUseLifeLoss: 4 },
   curse: { name: '呪詛', lifeBonus: 3, endTurnRandomEnemyDamage: 2, damageTakenBonus: 1 },
-  gambler: { name: '賭酔', exclusiveCard: 'gamble', rouletteBonus: 1, noManaRegen: true },
+  gambler: { name: '賭酔', rouletteBonus: 1, noManaRegen: true, turnStartGamble: true },
 };
 
 const EXCLUSIVE_CARD_INFO = {
   divinePunishment: { name: '神罰', cost: 4 },
-  gamble: { name: '博打', cost: 0 },
 };
 
 function alphaSum(player, field) {
@@ -40,9 +39,31 @@ function hasExclusive(player, exclusiveKey) {
   return player.alphaCards.some((key) => ALPHA_CARDS[key] && ALPHA_CARDS[key].exclusiveCard === exclusiveKey);
 }
 
+// アルファカードを手に入れた/失った際に手札上限が変わった場合、その場で枚数を合わせる
+// (翼で上限が増えた場合は山札から補充、筋肉などで上限が減った場合はランダムに山札へ戻す)
+function adjustHandCapAfterAlphaChange(room, player, log) {
+  const cap = 2 + alphaSum(player, 'extraHand');
+  if (player.hand.length < cap) {
+    while (player.hand.length < cap && room.deck.length > 0) {
+      player.hand.push(room.deck.pop());
+    }
+    log.push(`${player.name} は手札上限の変化により山札から補充した(現在 ${player.hand.length}枚)`);
+  } else if (player.hand.length > cap) {
+    const returned = [];
+    while (player.hand.length > cap) {
+      const idx = Math.floor(Math.random() * player.hand.length);
+      const [c] = player.hand.splice(idx, 1);
+      returned.push(c);
+    }
+    room.deck.push(...returned);
+    shuffle(room.deck);
+    log.push(`${player.name} は手札上限の変化により、あふれた${returned.length}枚をランダムに山札へ戻した`);
+  }
+}
+
 // ライフの増減(ダメージ以外の要因)。増加は狂化の「回復できない」対象になり、初期ライフを超えない。
 // 減少は上限なく適用され、0以下で撃破扱いになる(ただしこの経路での撃破はアルファカードの継承を行わない)。
-function applyLifeDelta(room, playerId, delta, reason, log) {
+function applyLifeDelta(room, playerId, delta, reason, log, uncapped) {
   const p = room.players[playerId];
   if (!p || !p.alive || delta === 0) return;
   if (delta > 0) {
@@ -51,7 +72,8 @@ function applyLifeDelta(room, playerId, delta, reason, log) {
       return;
     }
     const before = p.life;
-    p.life = Math.min(p.life + delta, p.initialLife);
+    const capped = uncapped ? p.life + delta : Math.min(p.life + delta, p.initialLife);
+    p.life = Math.max(p.life, capped); // 既に上限を超えている場合でも回復で減らさない
     if (p.life > before) log.push(`${p.name} のライフが ${p.life - before} 増加した(${reason}、現在 ${p.life})`);
   } else {
     const before = p.life;
@@ -141,23 +163,29 @@ function otherAlivePlayers(room, selfId) {
   return alivePlayers(room).filter((p) => p.id !== selfId);
 }
 
-function dealDamage(room, targetId, amount, log, attackerId) {
+function dealDamage(room, targetId, amount, log, attackerId, _reflected, fixed) {
   const p = room.players[targetId];
   if (!p || !p.alive) return 0;
-  let dmg = amount;
-  if (attackerId && attackerId !== targetId) {
-    const attacker = room.players[attackerId];
-    if (attacker) {
-      dmg += alphaSum(attacker, 'damageBonus');
-      const faceDownCount = attacker.field.filter((f) => !f.faceUp).length;
-      dmg += Math.floor(faceDownCount / 2) * alphaSum(attacker, 'damagePerTwoFaceDown');
-      const blackUsed = room.blackCardUsage ? (room.blackCardUsage[attackerId] || 0) : 0;
-      dmg += Math.floor(blackUsed / 2) * alphaSum(attacker, 'damagePerTwoBlackUsed');
-    }
+  if (!_reflected && p.reflectUntilTurnStart && attackerId && attackerId !== targetId && room.players[attackerId]) {
+    log.push(`${p.name} は反逆の効果で攻撃を跳ね返した`);
+    return dealDamage(room, attackerId, amount, log, targetId, true, fixed);
   }
-  dmg -= alphaSum(p, 'damageReduction');
-  dmg += alphaSum(p, 'damageTakenBonus');
-  dmg = Math.max(0, dmg);
+  let dmg = amount;
+  if (!fixed) {
+    if (attackerId && attackerId !== targetId) {
+      const attacker = room.players[attackerId];
+      if (attacker) {
+        dmg += alphaSum(attacker, 'damageBonus');
+        const faceDownCount = attacker.field.filter((f) => !f.faceUp).length;
+        dmg += Math.floor(faceDownCount / 1.5) * alphaSum(attacker, 'damagePerFaceDown15');
+        const blackUsed = room.blackCardUsage ? (room.blackCardUsage[attackerId] || 0) : 0;
+        dmg += Math.floor(blackUsed / 2) * alphaSum(attacker, 'damagePerTwoBlackUsed');
+      }
+    }
+    dmg -= alphaSum(p, 'damageReduction');
+    dmg += alphaSum(p, 'damageTakenBonus');
+    dmg = Math.max(0, dmg);
+  }
   if (p.shielded) {
     log.push(`${p.name} は防御中のため効果を受けなかった`);
     return 0;
@@ -175,6 +203,7 @@ function dealDamage(room, targetId, amount, log, attackerId) {
       killer.alphaCards.push(...p.alphaCards);
       p.alphaCards = [];
       log.push(`${killer.name} は ${p.name} のアルファカード(${gained.join('、')})を手に入れた`);
+      adjustHandCapAfterAlphaChange(room, killer, log);
     }
   }
   return dmg;
@@ -184,16 +213,23 @@ function healLife(room, targetId, amount, log, cap) {
   const p = room.players[targetId];
   if (!p || !p.alive) return;
   const before = p.life;
-  p.life = Math.min(p.life + amount, cap != null ? cap : p.life + amount);
+  const capped = cap != null ? Math.min(p.life + amount, cap) : p.life + amount;
+  p.life = Math.max(p.life, capped); // 既に上限を超えている場合でも回復で減らさない
   log.push(`${p.name} のライフが ${p.life - before} 回復した(現在 ${p.life})`);
 }
 
 function loseMana(room, targetId, amount, log) {
   const p = room.players[targetId];
-  if (!p) return;
+  if (!p) return 0;
+  if (p.shielded) {
+    log.push(`${p.name} は防御中のため効果を受けなかった`);
+    return 0;
+  }
   const before = p.mana;
   p.mana = Math.max(0, p.mana - amount);
-  log.push(`${p.name} のマナが ${before - p.mana} 減少した(現在 ${p.mana})`);
+  const lost = before - p.mana;
+  log.push(`${p.name} のマナが ${lost} 減少した(現在 ${p.mana})`);
+  return lost;
 }
 
 function gainMana(room, targetId, amount, log) {
@@ -234,11 +270,18 @@ function resolveEffect(room, actingId, card, opts = {}) {
       break;
     }
     case 3: { // 強奪
-      const t = opts.targetId;
-      if (t) {
-        const amount = Math.min(3, room.players[t].mana);
-        loseMana(room, t, amount, log);
-        gainMana(room, actingId, amount, log);
+      let attacker = actingId;
+      let t = opts.targetId;
+      if (t && room.players[t] && room.players[t].reflectUntilTurnStart && t !== actingId) {
+        log.push(`${room.players[t].name} は反逆の効果で強奪を跳ね返した`);
+        const swap = attacker; attacker = t; t = swap;
+      }
+      if (t && room.players[t]) {
+        const wanted = Math.min(3, room.players[t].mana);
+        if (wanted > 0) {
+          const lost = loseMana(room, t, wanted, log);
+          if (lost > 0) gainMana(room, attacker, lost, log);
+        }
       }
       break;
     }
@@ -317,7 +360,8 @@ function resolveEffect(room, actingId, card, opts = {}) {
       room.deck.push(...actor.hand);
       actor.hand = [];
       shuffle(room.deck);
-      for (let i = 0; i < 2 && room.deck.length > 0; i++) actor.hand.push(room.deck.pop());
+      const handCap = 2 + alphaSum(actor, 'extraHand');
+      for (let i = 0; i < handCap && room.deck.length > 0; i++) actor.hand.push(room.deck.pop());
       log.push(`${actor.name} はライフ・マナをリセットし、手札を入れ替えた`);
       break;
     }
@@ -333,6 +377,7 @@ function resolveEffect(room, actingId, card, opts = {}) {
         const [drawn] = room.deck.splice(blackIdx, 1);
         log.push(`${actor.name} は深淵から黒いカード「${drawn.name}」を引いた`);
         actor.field.push({ instanceId: drawn.instanceId, no: drawn.no, name: drawn.name, faceUp: true, misfired: false });
+        room.blackCardUsage[actingId] = (room.blackCardUsage[actingId] || 0) + 1; // 深淵で使った黒いカードも使用済みとしてカウントする
         const subOpts = { targetId: opts.subTargets ? opts.subTargets[i] : opts.targetId, chosenCost: drawn.baseCost || 3, __nested: true };
         const sub = resolveEffect(room, actingId, drawn, subOpts);
         log.push(...sub.log);
@@ -429,7 +474,7 @@ function resolveDivinePunishment(room, actingId, targetId, log) {
   const actor = room.players[actingId];
   const target = room.players[targetId];
   if (!actor || !target || !target.alive) return;
-  const blackUsed = room.blackCardUsage ? (room.blackCardUsage[actingId] || 0) : 0;
+  const blackUsed = room.blackCardUsage ? (room.blackCardUsage[targetId] || 0) : 0;
   const dmg = 3 + Math.floor(blackUsed / 2);
   log.push(`${actor.name} は「神罰」を発動した`);
   dealDamage(room, targetId, dmg, log, actingId);
@@ -498,6 +543,7 @@ module.exports = {
   alphaSum,
   hasExclusive,
   applyLifeDelta,
+  adjustHandCapAfterAlphaChange,
   resolveDivinePunishment,
   resolveGamble,
   buildDeck,
