@@ -48,6 +48,7 @@ function createRoom(hostSocketId, hostName) {
       chatEnabled: true,
       showEnemyLife: true,
       showEnemyMana: true,
+      initialLife: DEFAULT_INITIAL_LIFE,
     },
     cardCounts: {}, // 空なら cards.js のデフォルトを使う
     blackCardUsage: {}, // playerId -> 累計使用黒いカード枚数
@@ -64,7 +65,7 @@ function createRoom(hostSocketId, hostName) {
 function newPlayer(id, name) {
   return {
     id,
-    name: (name || 'プレイヤー').slice(0, 10),
+    name: (name || 'プレイヤー').slice(0, 15),
     life: DEFAULT_INITIAL_LIFE,
     initialLife: DEFAULT_INITIAL_LIFE,
     mana: 0,
@@ -78,6 +79,42 @@ function newPlayer(id, name) {
     reflectUntilTurnStart: false,
     randomizedTurnsLeft: 0,
   };
+}
+
+function resetPlayersForNewGame(room) {
+  room.blackCardUsage = {};
+  const initLife = (room.settings && room.settings.initialLife) || DEFAULT_INITIAL_LIFE;
+  for (const id of room.order) {
+    const p = room.players[id];
+    p.life = initLife;
+    p.initialLife = initLife;
+    p.mana = 0;
+    p.hand = [];
+    p.field = [];
+    p.alive = true;
+    p.spectator = false;
+    p.shielded = false;
+    p.shieldUntilTurnStart = false;
+    p.reflectUntilTurnStart = false;
+    p.randomizedTurnsLeft = 0;
+  }
+  shuffle(room.order); // 先攻・席順をランダムに決定(以後は配列順=時計回りで進行)
+}
+
+function beginGame(room, io) {
+  room.deck = buildDeck(room.cardCounts);
+  for (const id of room.order) {
+    const p = room.players[id];
+    p.hand = [];
+    for (let i = 0; i < 2 && room.deck.length > 0; i++) p.hand.push(room.deck.pop());
+  }
+  room.started = true;
+  room.ended = false;
+  room.winnerId = null;
+  room.turnIndex = -1; // advanceTurnで0番目に進む
+  room.turnCount = 0;
+  pushLog(room, ['ゲームを開始しました']);
+  advanceTurn(room, io);
 }
 
 function currentPlayerId(room) {
@@ -96,7 +133,10 @@ function publicPlayerView(room, player, viewerId) {
     mana: showMana ? player.mana : null,
     handCount: player.hand.length,
     hand: isSelf ? player.hand : undefined, // 自分の手札のみ中身を送る
-    field: player.field.map((f) => (f.faceUp || isSelf || viewerIsSpectator ? f : { faceUp: false, hidden: true })),
+    field: player.field.map((f) => {
+      const visibleAsFaceUp = f.faceUp && !f.stealth;
+      return visibleAsFaceUp || isSelf || viewerIsSpectator ? f : { faceUp: false, hidden: true };
+    }),
     alive: player.alive,
     spectator: player.spectator,
     shielded: player.shielded,
@@ -124,6 +164,8 @@ function buildStateFor(room, viewerId) {
 
 function broadcastState(room) {
   for (const id of room.order) {
+    const player = room.players[id];
+    if (!player || player.connected === false) continue; // 退室・切断済みの相手には送らない
     const sock = io.sockets.sockets.get(id);
     if (sock) sock.emit('state', buildStateFor(room, id));
   }
@@ -206,13 +248,19 @@ io.on('connection', (socket) => {
   socket.on('joinRoom', ({ roomId, name }, cb) => {
     const room = rooms[roomId];
     if (!room) return cb && cb({ ok: false, error: 'ルームが見つかりません' });
-    if (room.started) return cb && cb({ ok: false, error: 'すでにゲームが開始されています' });
-    if (room.order.length >= 6) return cb && cb({ ok: false, error: 'ルームが満員です' });
-    room.players[socket.id] = newPlayer(socket.id, name);
+    if (!room.started && room.order.length >= 6) return cb && cb({ ok: false, error: 'ルームが満員です' });
+    const player = newPlayer(socket.id, name);
+    if (room.started) {
+      // ゲーム中に参加した場合は観戦としてルームに加える(進行中の対戦には参加しない)
+      player.spectator = true;
+      player.alive = false;
+    }
+    room.players[socket.id] = player;
     room.order.push(socket.id);
     socket.join(roomId);
     socket.data.roomId = roomId;
     cb && cb({ ok: true, roomId, playerId: socket.id });
+    if (room.started) pushLog(room, [`${player.name} が観戦者として参加した`]);
     broadcastState(room);
   });
 
@@ -232,17 +280,40 @@ io.on('connection', (socket) => {
   socket.on('startGame', () => {
     const room = rooms[socket.data.roomId];
     if (!room || room.hostId !== socket.id || room.started) return;
-    room.deck = buildDeck(room.cardCounts);
-    for (const id of room.order) {
-      const p = room.players[id];
-      p.hand = [];
-      for (let i = 0; i < 2 && room.deck.length > 0; i++) p.hand.push(room.deck.pop());
+    if (room.order.length < 2) {
+      const sock = io.sockets.sockets.get(socket.id);
+      if (sock) sock.emit('errorMsg', 'ゲーム開始には2人以上のプレイヤーが必要です');
+      return;
     }
-    room.started = true;
-    room.turnIndex = -1; // advanceTurnで0番目に進む
+    resetPlayersForNewGame(room);
+    beginGame(room, io);
+  });
+
+  socket.on('returnToLobby', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.hostId !== socket.id || !room.ended) return;
+    room.started = false;
+    room.ended = false;
+    room.winnerId = null;
+    room.deck = [];
+    room.turnIndex = 0;
     room.turnCount = 0;
-    pushLog(room, ['ゲームを開始しました']);
-    advanceTurn(room, io);
+    resetPlayersForNewGame(room);
+    pushLog(room, ['ゲームマスターがルームに戻りました']);
+    broadcastState(room);
+  });
+
+  socket.on('newGame', () => {
+    const room = rooms[socket.data.roomId];
+    if (!room || room.hostId !== socket.id || !room.ended) return;
+    if (room.order.length < 2) {
+      const sock = io.sockets.sockets.get(socket.id);
+      if (sock) sock.emit('errorMsg', 'ゲーム開始には2人以上のプレイヤーが必要です');
+      return;
+    }
+    resetPlayersForNewGame(room);
+    pushLog(room, ['ゲームマスターが新しいゲームを開始しました']);
+    beginGame(room, io);
   });
 
   socket.on('chat', ({ scope, message }) => {
@@ -264,21 +335,47 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('peekHand', ({ targetId }) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || !room.started || room.ended) return;
+    if (currentPlayerId(room) !== socket.id) return;
+    const target = room.players[targetId];
+    if (!target || !target.alive || target.spectator) return;
+    const sock = io.sockets.sockets.get(socket.id);
+    if (sock) sock.emit('handPeek', { targetId, hand: target.hand });
+  });
+
   socket.on('playCard', (payload) => {
     const room = rooms[socket.data.roomId];
     if (!room || !room.started || room.ended) return;
     if (currentPlayerId(room) !== socket.id) return;
     const actor = room.players[socket.id];
-    const { instanceId, faceUp, targetId, chosenCost } = payload;
+    let { instanceId, faceUp, targetId, chosenCost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId } = payload;
+    let randomizedThisTurn = false;
+
+    if (actor.randomizedTurnsLeft > 0 && actor.hand.length > 0) {
+      // 魘の効果: 表裏・出すカード・対象・コストを強制的にランダム化する
+      const randCard = actor.hand[Math.floor(Math.random() * actor.hand.length)];
+      instanceId = randCard.instanceId;
+      faceUp = Math.random() < 0.5;
+      const pool = alivePlayers(room);
+      targetId = pool.length ? pool[Math.floor(Math.random() * pool.length)].id : undefined;
+      chosenCost = Math.floor(Math.random() * 7) + 1;
+      returnInstanceId = undefined;
+      actor.randomizedTurnsLeft -= 1;
+      randomizedThisTurn = true;
+    }
+
     const idx = actor.hand.findIndex((c) => c.instanceId === instanceId);
     if (idx === -1) return;
     const [card] = actor.hand.splice(idx, 1);
+    const randomNotice = randomizedThisTurn ? [`${actor.name} は魘の影響で行動がランダムになった`] : [];
 
     if (!faceUp) {
       // 裏向き
       actor.field.push({ instanceId: card.instanceId, no: card.no, name: card.name, faceUp: false });
       actor.life = Math.min(actor.life + 1, 999);
-      pushLog(room, [`${actor.name} は裏向きでカードを出した`]);
+      pushLog(room, [...randomNotice, `${actor.name} は裏向きでカードを出した`]);
       advanceTurn(room, io);
       return;
     }
@@ -292,24 +389,33 @@ io.on('connection', (socket) => {
       cost = Math.ceil(used * 1.5);
     }
 
+    const isStealth = card.no === 10; // 反逆: 発動成功時は場では裏向きに見える
     const fieldEntry = { instanceId: card.instanceId, no: card.no, name: card.name, faceUp: true, misfired: false };
 
     if (cost == null) cost = 0;
     if (actor.mana < cost) {
       fieldEntry.misfired = true;
       actor.field.push(fieldEntry);
-      pushLog(room, [`${actor.name} は「${card.name}」を表向きで出したが、マナ不足で不発だった`]);
+      pushLog(room, [...randomNotice, `${actor.name} は「${card.name}」を表向きで出したが、マナ不足で不発だった`]);
       advanceTurn(room, io);
       return;
     }
 
     actor.mana -= cost;
+    if (isStealth) fieldEntry.stealth = true;
     actor.field.push(fieldEntry);
     if (card.isBlack) {
       room.blackCardUsage[socket.id] = (room.blackCardUsage[socket.id] || 0) + 1;
     }
-    const result = resolveEffect(room, socket.id, card, { targetId, chosenCost: cost });
-    pushLog(room, [`${actor.name} は「${card.name}」を発動した(コスト${cost})`, ...result.log]);
+    const result = resolveEffect(room, socket.id, card, { targetId, chosenCost: cost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId });
+    if (result.extra && result.extra.type === 'roulette') {
+      io.to(room.roomId).emit('rouletteResult', result.extra);
+    }
+    if (isStealth) {
+      pushLog(room, [...randomNotice, `${actor.name} は裏向きでカードを出した`]);
+    } else {
+      pushLog(room, [...randomNotice, `${actor.name} は「${card.name}」を発動した(コスト${cost})`, ...result.log]);
+    }
     advanceTurn(room, io);
   });
 
@@ -357,6 +463,7 @@ io.on('connection', (socket) => {
     }
     checkGameEnd(room);
     broadcastState(room);
+    socket.data.roomId = null;
   }
 });
 
