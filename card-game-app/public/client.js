@@ -76,23 +76,23 @@ const SECRET_INFO = {
 
 // アルファモード専用のカード
 const ALPHA_CARD_INFO = {
-  blessing: { name: '加護', cost: '-', effect: 'メリット:初期ライフ+5。自分のターンの終わりにライフ+1(初期ライフを超えない)。デメリット:なし。' },
+  blessing: { name: '加護', cost: '-', effect: 'メリット:初期ライフ+5。自分のターンの終わりにライフ+1(上限なし、初期ライフを超えてもよい)。デメリット:なし。' },
   toughness: { name: '強靭', cost: '-', effect: '初期ライフ+7。受けるダメージを最終的に-1する。' },
   training: { name: '鍛錬', cost: '-', effect: '自分の場の裏向きカード1.5枚につき、与えるダメージが最終的に+1(例:裏向き2枚で+1)。初期ライフ+3。' },
   magicSword: { name: '魔剣', cost: '-', effect: '与えるダメージ+3。プレイヤーにダメージを与えると反動で自分が1ダメージを受ける(1回のカード使用につき反動は1回のみ)。' },
   wings: { name: '翼', cost: '-', effect: '手札の上限が1枚増える(ゲーム開始時から常に3枚。輪廻などで引き直した後も3枚になる)。その代わり、すべてのカードの最終コストが+1になる。' },
   muscle: { name: '筋肉', cost: '-', effect: '与えるダメージ+2、受けるダメージ-2、初期ライフ+7。その代わり手札の上限が1枚減る(常に1枚)。' },
-  berserk: { name: '狂化', cost: '-', effect: '初期ライフ+13、与えるダメージ+2。その代わりライフが一切回復しなくなる(輪廻による初期ライフへのリセットは回復扱いではないため可能)。' },
+  berserk: { name: '狂化', cost: '-', effect: '初期ライフ+13、与えるダメージ+2。その代わり、自分のターン終了時に固定1ダメージを受ける(補正を受けない)。' },
   corruption: { name: '堕落', cost: '-', effect: '使った黒いカード2枚につき与ダメージ+1。黒いカードを使うとライフ+2(この回復は初期ライフを超えられる)。裏向きに置いた時、または黒いカード以外を使った時はライフ-1。' },
   apostle: { name: '使徒', cost: '-', effect: '初期ライフ+3。専用カード「神罰」が使えるようになる。黒いカードを使うとライフ-4。' },
   curse: { name: '呪詛', cost: '-', effect: '初期ライフ+3。自分のターンの終わりに、ランダムな敵1人へ固定2ダメージ、さらに別のランダムな敵1人へ固定1ダメージ(どちらも補正を受けない)。その代わり受けるダメージ+1。' },
   gambler: { name: '賭酔', cost: '-', effect: '自分のターンの初めに自動で「博打」の効果が発動する:全員でルーレットを回し(自分の出目には+2のボーナス)、各自「自分の出目-全員の平均値」分だけマナが増減する(合計は必ず0になる再分配。マナがマイナスになることもある)。加えて、ルーレットを使うカード全般(賭博など)で自分の出目に常に+1。その代わり、マナの自然回復量が-1される(0未満にはならない)。' },
   regen: { name: '再生', cost: '-', effect: 'ライフが0以下になった時、一度だけライフが初期ライフまで戻って生き延びる(この効果はゲーム中1回のみ)。その代わり、自分が与えるダメージが-1される。' },
-  karakuri: { name: '絡繰', cost: '-', effect: '致命的なダメージを受けてライフが0を下回りそうな時、2マナを1ライフの代わりとして消費し、その分だけライフ0で踏みとどまれる(マナが足りない分は通常通りダメージを受ける)。例:ライフ3・マナ6の状態で5ダメージを受けると、ライフ0・マナ2で耐える。その代わり初期ライフ-3。' },
+  karakuri: { name: '絡繰', cost: '-', effect: '致命的なダメージを受けてライフが0を下回りそうな時、2マナを1ライフの代わりとして消費し、その分だけライフ0で踏みとどまれる(マナが足りない分は通常通りダメージを受ける)。例:ライフ3・マナ6の状態で5ダメージを受けると、ライフ0・マナ2で耐える。加えて、カードを表向きで出すとマナ+1。その代わり初期ライフ-3。' },
 };
 
 const EXCLUSIVE_CARD_INFO = {
-  divinePunishment: { name: '神罰', cost: 4, effect: '敵プレイヤー1人に 3+(相手が使った黒いカード2枚につき1) のダメージを与える。使徒でのみ使用可。' },
+  divinePunishment: { name: '神罰', cost: 4, effect: '敵プレイヤー1人に 3+(相手が使った黒いカード1.5枚につき1) のダメージを与える。使徒でのみ使用可。' },
 };
 
 function renderExclusiveCardSlot(me, isMyTurn) {
@@ -582,6 +582,16 @@ $('btnPlayFaceUp').onclick = () => {
 
   if (selectedCard.no === 6) {
     if (!targetId) { alert('対象のプレイヤーを選んでください'); return; }
+    const me = latestState && latestState.players.find((p) => p.id === myId);
+    const targetPlayer = latestState && latestState.players.find((p) => p.id === targetId);
+    if ((me && me.mana < 3) || (targetPlayer && targetPlayer.shielded)) {
+      // マナ不足、または相手が防御中(豪運の防御も含む)の場合は、相手の手札を見ずに通常のカードと同じ扱いで処理する
+      // (正確な判定はサーバー側でも行われる)
+      socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId });
+      closeOverlay('cardPopup');
+      selectedCard = null;
+      return;
+    }
     startTradeFlow(selectedCard, targetId);
     closeOverlay('cardPopup');
     return;
@@ -664,9 +674,41 @@ $('btnTradeConfirm').onclick = () => {
   closeOverlay('tradeOverlay');
 };
 
-// ========== ルーレット演出(No.7 賭博) ==========
+// ========== ルーレット演出(No.7 賭博 / 博打): 同時に発生した場合は順番に表示する ==========
+let rouletteQueue = [];
+
 socket.on('rouletteResult', (data) => {
+  rouletteQueue.push({ type: 'single', data });
+  processNextRoulette();
+});
+
+socket.on('gambleRouletteResult', (data) => {
+  rouletteQueue.push({ type: 'gamble', data });
+  processNextRoulette();
+});
+
+function processNextRoulette() {
+  if (rouletteAnimating || rouletteQueue.length === 0) return;
+  const next = rouletteQueue.shift();
   rouletteAnimating = true;
+  if (next.type === 'single') showSingleRoulette(next.data);
+  else showGambleRoulette(next.data);
+}
+
+function finishRoulette() {
+  rouletteAnimating = false;
+  if (rouletteQueue.length > 0) {
+    processNextRoulette();
+    return;
+  }
+  if (pendingStateDuringRoulette) {
+    const s = pendingStateDuringRoulette;
+    pendingStateDuringRoulette = null;
+    applyState(s);
+  }
+}
+
+function showSingleRoulette(data) {
   $('rouletteActorName').textContent = data.actorName;
   $('rouletteTargetName').textContent = data.targetName;
   const actorNumEl = $('rouletteActorNumber');
@@ -696,18 +738,11 @@ socket.on('rouletteResult', (data) => {
 
   setTimeout(() => {
     closeOverlay('rouletteOverlay');
-    rouletteAnimating = false;
-    if (pendingStateDuringRoulette) {
-      const s = pendingStateDuringRoulette;
-      pendingStateDuringRoulette = null;
-      applyState(s);
-    }
+    finishRoulette();
   }, 3200);
-});
+}
 
-// ========== 博打: 全員ルーレット演出 ==========
-socket.on('gambleRouletteResult', (data) => {
-  rouletteAnimating = true;
+function showGambleRoulette(data) {
   const wrap = $('gambleRouletteWheels');
   wrap.innerHTML = '';
   const numEls = {};
@@ -747,14 +782,9 @@ socket.on('gambleRouletteResult', (data) => {
 
   setTimeout(() => {
     closeOverlay('gambleRouletteOverlay');
-    rouletteAnimating = false;
-    if (pendingStateDuringRoulette) {
-      const s = pendingStateDuringRoulette;
-      pendingStateDuringRoulette = null;
-      applyState(s);
-    }
+    finishRoulette();
   }, 3200);
-});
+}
 
 // ========== 探索(No.1): 引いた後に戻すカードを選ぶ ==========
 socket.on('searchReturnPrompt', ({ hand }) => {
