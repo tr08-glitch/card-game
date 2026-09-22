@@ -593,27 +593,36 @@ $('btnPlayFaceUp').onclick = () => {
 };
 
 // ========== 取引(No.6): 相手の手札を見て1枚ずつ交換 ==========
-let tradeState = null; // { card, targetId, chosenGiveId, chosenTakeId }
+let tradeState = null; // { mode: 'normal'|'reflected', card?, targetId?, actorId?, chosenGiveId, chosenTakeId }
 
 function startTradeFlow(card, targetId) {
-  tradeState = { card, targetId, chosenGiveId: null, chosenTakeId: null };
+  tradeState = { mode: 'normal', card, targetId, chosenGiveId: null, chosenTakeId: null };
   socket.emit('peekHand', { targetId });
 }
 
 socket.on('handPeek', ({ targetId, hand }) => {
-  if (!tradeState || tradeState.targetId !== targetId) return;
+  if (!tradeState || tradeState.mode !== 'normal' || tradeState.targetId !== targetId) return;
   renderTradeOverlay(hand);
   openOverlay('tradeOverlay');
 });
 
-function renderTradeOverlay(targetHand) {
+// 反逆: 相手に取引を使うと、カード交換の選択権がこちらに移ってくる
+socket.on('reflectedTradeOffer', ({ actorId, actorName, hand }) => {
+  closeInformationalOverlays();
+  tradeState = { mode: 'reflected', actorId, chosenGiveId: null, chosenTakeId: null };
+  $('tradeTitle').textContent = `取引(反逆): ${actorName} の取引をあなたが受け止めた`;
+  renderTradeOverlay(hand);
+  openOverlay('tradeOverlay');
+});
+
+function renderTradeOverlay(otherHand) {
   const targetDiv = $('tradeTargetHand');
   targetDiv.innerHTML = '';
-  for (const c of targetHand) {
+  for (const c of otherHand) {
     const el = makeCardEl(c, { forceShow: true });
     el.classList.add('handCard');
     if (tradeState.chosenTakeId === c.instanceId) el.classList.add('selected');
-    el.onclick = () => { tradeState.chosenTakeId = c.instanceId; renderTradeOverlay(targetHand); };
+    el.onclick = () => { tradeState.chosenTakeId = c.instanceId; renderTradeOverlay(otherHand); };
     targetDiv.appendChild(el);
   }
 
@@ -622,11 +631,11 @@ function renderTradeOverlay(targetHand) {
   const me = latestState && latestState.players.find((p) => p.id === myId);
   const ownHand = (me && me.hand) || [];
   for (const c of ownHand) {
-    if (c.instanceId === tradeState.card.instanceId) continue; // 取引カード自体は交換対象にしない
+    if (tradeState.mode === 'normal' && c.instanceId === tradeState.card.instanceId) continue; // 取引カード自体は交換対象にしない
     const el = makeCardEl(c, { forceShow: true });
     el.classList.add('handCard');
     if (tradeState.chosenGiveId === c.instanceId) el.classList.add('selected');
-    el.onclick = () => { tradeState.chosenGiveId = c.instanceId; renderTradeOverlay(targetHand); };
+    el.onclick = () => { tradeState.chosenGiveId = c.instanceId; renderTradeOverlay(otherHand); };
     ownDiv.appendChild(el);
   }
 }
@@ -637,13 +646,20 @@ $('btnTradeConfirm').onclick = () => {
     alert('渡すカードともらうカードを、それぞれ1枚ずつ選んでください');
     return;
   }
-  socket.emit('playCard', {
-    instanceId: tradeState.card.instanceId,
-    faceUp: true,
-    targetId: tradeState.targetId,
-    tradeGiveInstanceId: tradeState.chosenGiveId,
-    tradeTakeInstanceId: tradeState.chosenTakeId,
-  });
+  if (tradeState.mode === 'reflected') {
+    socket.emit('confirmReflectedTrade', {
+      giveInstanceId: tradeState.chosenGiveId,
+      takeInstanceId: tradeState.chosenTakeId,
+    });
+  } else {
+    socket.emit('playCard', {
+      instanceId: tradeState.card.instanceId,
+      faceUp: true,
+      targetId: tradeState.targetId,
+      tradeGiveInstanceId: tradeState.chosenGiveId,
+      tradeTakeInstanceId: tradeState.chosenTakeId,
+    });
+  }
   tradeState = null;
   closeOverlay('tradeOverlay');
 };
@@ -997,9 +1013,7 @@ function renderGame(state) {
       <div class="oppHandCount">手札:${p.handCount == null ? '?' : p.handCount}枚</div>
       <div class="oppFieldMini">場:${p.field.length}枚</div>
     `;
-    if (p.alive) {
-      box.onclick = () => openFieldZoom(p);
-    }
+    box.onclick = () => openFieldZoom(p);
     oppDiv.appendChild(box);
   }
 
