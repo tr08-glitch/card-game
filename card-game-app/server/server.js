@@ -86,7 +86,11 @@ function createRoom(hostSocketId, hostName, hostIcon) {
   return room;
 }
 
-const PLAYER_ICONS = ['icon_star', 'icon_moon', 'icon_flame', 'icon_leaf', 'icon_skull', 'icon_crystal', 'icon_eye', 'icon_wolf', 'icon_crown', 'icon_wave'];
+const PLAYER_ICONS = [
+  'icon_star', 'icon_moon', 'icon_flame', 'icon_leaf', 'icon_skull', 'icon_crystal', 'icon_eye', 'icon_wolf', 'icon_crown', 'icon_wave',
+  'icon_sword', 'icon_shield', 'icon_potion', 'icon_book', 'icon_ring', 'icon_feather', 'icon_thunder', 'icon_snow', 'icon_rose', 'icon_mask',
+  'icon_key', 'icon_arrow', 'icon_spider', 'icon_bat', 'icon_candle', 'icon_hourglass', 'icon_mountain', 'icon_scroll', 'icon_gem', 'icon_phoenix',
+];
 
 function newPlayer(id, name, icon) {
   return {
@@ -328,15 +332,12 @@ function checkGameEnd(room) {
     room.winnerId = alive[0] ? alive[0].id : null;
     return true;
   }
-  const winMode = (room.settings && room.settings.winMode) || 'default';
-  if (winMode === 'suddenDeath') {
-    // サドンデス制: 山札切れ・ターン数では終了しない。最後の1人になるまで続く
-    return false;
-  }
   if (room.deck.length === 0) {
+    // サドンデス制でも、山札が切れたらライフ最大の人の勝ちで決着する
     endByHighestLife(room);
     return true;
   }
+  const winMode = (room.settings && room.settings.winMode) || 'default';
   if (winMode === 'turnLimit' && room.settings.turnLimitEnabled && room.turnCount >= room.settings.turnLimit) {
     endByHighestLife(room);
     return true;
@@ -440,13 +441,9 @@ function advanceTurn(room, io) {
   // ターン開始処理: シールド解除(自分のターンが来たので前回の防御は失効), マナ回復, 1枚ドロー
   p.shielded = false;
   p.reflectUntilTurnStart = false;
-  if (alphaSum(p, 'noManaRegen') > 0) {
-    // 賭酔: マナが自然回復しない
-  } else if (p.mana < 0) {
-    p.mana += 4; // マイナスの場合は固定+4で回復
-  } else {
-    p.mana += manaRegenAmount(p.mana);
-  }
+  const baseRegen = p.mana < 0 ? 4 : manaRegenAmount(p.mana); // マイナスの場合は固定+4で回復
+  const regen = Math.max(0, baseRegen - alphaSum(p, 'manaRegenPenalty'));
+  p.mana += regen;
   if (p.pendingRevealCardId) {
     // 反逆: 次の自分のターン開始時に正体を公開し、マナ3を消費する
     const fieldCard = p.field.find((f) => f.instanceId === p.pendingRevealCardId);
@@ -859,7 +856,11 @@ io.on('connection', (socket) => {
     p.initialLife = baseLife + alphaSum(p, 'lifeBonus');
     p.life = p.initialLife;
     room.pendingAlphaPicks.delete(socket.id);
-    pushLog(room, [`${p.name} は「${ALPHA_CARDS[key].name}」を選んだ`]);
+    if (room.settings && room.settings.alphaCardVisibility === false) {
+      pushLog(room, [`${p.name} はアルファカードを選んだ`]); // 可視化オフの時はカード名を伏せる
+    } else {
+      pushLog(room, [`${p.name} は「${ALPHA_CARDS[key].name}」を選んだ`]);
+    }
     if (room.pendingAlphaPicks.size === 0) {
       room.pendingAlphaPicks = null;
       room.alphaCandidates = {};

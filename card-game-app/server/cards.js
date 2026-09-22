@@ -17,7 +17,7 @@ const ALPHA_CARDS = {
   corruption: { name: '堕落', damagePerTwoBlackUsed: 1, blackUseLifeGain: 2, otherUseLifeLoss: 1 },
   apostle: { name: '使徒', lifeBonus: 3, exclusiveCard: 'divinePunishment', blackUseLifeLoss: 4 },
   curse: { name: '呪詛', lifeBonus: 3, endTurnRandomEnemyDamage: 2, damageTakenBonus: 1 },
-  gambler: { name: '賭酔', rouletteBonus: 1, noManaRegen: true, turnStartGamble: true },
+  gambler: { name: '賭酔', rouletteBonus: 1, turnStartGamble: true, manaRegenPenalty: 1 },
   regen: { name: '再生', damageBonus: -1, reviveOnce: true },
   karakuri: { name: '絡繰', lifeBonus: -3, manaAsLifeBuffer: true },
 };
@@ -541,6 +541,10 @@ function resolveGamble(room, actingId, log) {
   for (const p of players) {
     const delta = finalDeltas[p.id];
     if (delta === 0) continue;
+    if (delta < 0 && p.shielded) {
+      log.push(`${p.name} は防御中のため、博打によるマナ減少を受けなかった`);
+      continue;
+    }
     p.mana += delta; // 博打の効果ではマナが負の値になることもある
     log.push(`${p.name} のマナが ${delta > 0 ? `${delta}増加` : `${-delta}減少`}した(現在 ${p.mana})`);
   }
