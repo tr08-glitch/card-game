@@ -84,6 +84,11 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
   position: fixed; inset: 0; background: rgba(5, 2, 12, 0.82);
   display: flex; align-items: center; justify-content: center; z-index: 50; padding: 1em;
 }
+/* 裁判の投票・探索の戻し先選択・アルファカード選択は、対戦の進行を止めて必ず対応してもらう必要があるため、
+   他のオーバーレイ(カード一覧など)が開いていてもその上に必ず表示されるようにする */
+#trialOverlay, #searchReturnOverlay, #alphaChoiceOverlay {
+  z-index: 90;
+}
 .overlayPanel {
   background: linear-gradient(180deg, var(--bg-panel), var(--bg-panel2));
   border: 1px solid var(--border-gold);

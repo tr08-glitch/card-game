@@ -10,6 +10,10 @@ const $ = (id) => document.getElementById(id);
 const PLAYER_ICONS = [
   'icon_star', 'icon_moon', 'icon_flame', 'icon_leaf', 'icon_skull',
   'icon_crystal', 'icon_eye', 'icon_wolf', 'icon_crown', 'icon_wave',
+  'icon_sword', 'icon_shield', 'icon_potion', 'icon_book', 'icon_ring',
+  'icon_feather', 'icon_thunder', 'icon_snow', 'icon_rose', 'icon_mask',
+  'icon_key', 'icon_arrow', 'icon_spider', 'icon_bat', 'icon_candle',
+  'icon_hourglass', 'icon_mountain', 'icon_scroll', 'icon_gem', 'icon_phoenix',
 ];
 function iconPath(key) {
   const k = PLAYER_ICONS.includes(key) ? key : PLAYER_ICONS[0];
@@ -82,7 +86,7 @@ const ALPHA_CARD_INFO = {
   corruption: { name: '堕落', cost: '-', effect: '使った黒いカード2枚につき与ダメージ+1。黒いカードを使うとライフ+2(この回復は初期ライフを超えられる)。裏向きに置いた時、または黒いカード以外を使った時はライフ-1。' },
   apostle: { name: '使徒', cost: '-', effect: '初期ライフ+3。専用カード「神罰」が使えるようになる。黒いカードを使うとライフ-4。' },
   curse: { name: '呪詛', cost: '-', effect: '初期ライフ+3。自分のターンの終わりに、ランダムな敵1人へ固定2ダメージ、さらに別のランダムな敵1人へ固定1ダメージ(どちらも補正を受けない)。その代わり受けるダメージ+1。' },
-  gambler: { name: '賭酔', cost: '-', effect: '自分のターンの初めに自動で「博打」の効果が発動する:全員でルーレットを回し(自分の出目には+2のボーナス)、各自「自分の出目-全員の平均値」分だけマナが増減する(合計は必ず0になる再分配。マナがマイナスになることもある)。加えて、ルーレットを使うカード全般(賭博など)で自分の出目に常に+1。その代わりマナが自然回復しなくなる。' },
+  gambler: { name: '賭酔', cost: '-', effect: '自分のターンの初めに自動で「博打」の効果が発動する:全員でルーレットを回し(自分の出目には+2のボーナス)、各自「自分の出目-全員の平均値」分だけマナが増減する(合計は必ず0になる再分配。マナがマイナスになることもある)。加えて、ルーレットを使うカード全般(賭博など)で自分の出目に常に+1。その代わり、マナの自然回復量が-1される(0未満にはならない)。' },
   regen: { name: '再生', cost: '-', effect: 'ライフが0以下になった時、一度だけライフが初期ライフまで戻って生き延びる(この効果はゲーム中1回のみ)。その代わり、自分が与えるダメージが-1される。' },
   karakuri: { name: '絡繰', cost: '-', effect: '致命的なダメージを受けてライフが0を下回りそうな時、2マナを1ライフの代わりとして消費し、その分だけライフ0で踏みとどまれる(マナが足りない分は通常通りダメージを受ける)。例:ライフ3・マナ6の状態で5ダメージを受けると、ライフ0・マナ2で耐える。その代わり初期ライフ-3。' },
 };
@@ -738,6 +742,7 @@ socket.on('gambleRouletteResult', (data) => {
 
 // ========== 探索(No.1): 引いた後に戻すカードを選ぶ ==========
 socket.on('searchReturnPrompt', ({ hand }) => {
+  closeInformationalOverlays();
   renderSearchReturnHand(hand);
   openOverlay('searchReturnOverlay');
 });
@@ -756,9 +761,18 @@ function renderSearchReturnHand(hand) {
   }
 }
 
+function closeInformationalOverlays() {
+  // 裁判の投票など、対応が必須のオーバーレイを開く前に、他の閲覧用オーバーレイを閉じておく保険
+  ['cardListOverlay', 'ruleOverlay', 'fieldZoomOverlay', 'gameSettingsOverlay', 'cardCountOverlay'].forEach((id) => {
+    const el = $(id);
+    if (el) el.classList.add('hidden');
+  });
+}
+
 // ========== 裁判(混沌の小規模効果): 投票画面 ==========
 let trialVoted = false;
 socket.on('trialStart', ({ candidates, actingName }) => {
+  closeInformationalOverlays();
   trialVoted = false;
   $('trialDesc').textContent = `${actingName} の混沌により裁判が発動。1人を選んで投票してください(発動者の票は2票分)`;
   $('trialVoteStatus').textContent = '';
@@ -797,6 +811,7 @@ socket.on('trialEnd', () => {
 
 // ========== アルファモード: ゲーム開始前のアルファカード選択 ==========
 socket.on('alphaCardChoice', ({ candidates }) => {
+  closeInformationalOverlays();
   const list = $('alphaChoiceList');
   list.innerHTML = '';
   for (const c of candidates) {
