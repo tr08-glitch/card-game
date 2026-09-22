@@ -79,6 +79,7 @@ function createRoom(hostSocketId, hostName, hostIcon) {
     turnCount: 0,
     bannedIds: new Set(), // 退室させられたプレイヤーのsocket.id(このルームが解散されるまで再参加不可)
     suddenDeathActive: false,
+    pendingReflectedTrade: null,
     pendingSearchReturn: null, // 探索: 戻すカードの選択待ちのプレイヤーid
     pendingTrial: null, // 裁判: 投票待ちの情報 { actingId, candidateIds, votes }
   };
@@ -148,6 +149,7 @@ function resetPlayersForNewGame(room) {
   room.pendingSearchReturn = null;
   room.pendingTrial = null;
   room.suddenDeathActive = false;
+  room.pendingReflectedTrade = null;
   const initLife = (room.settings && room.settings.initialLife) || DEFAULT_INITIAL_LIFE;
   for (const id of room.order) {
     const p = room.players[id];
@@ -181,7 +183,10 @@ function beginGame(room, io) {
 }
 
 function startAlphaSelection(room, io) {
-  const keys = Object.keys(ALPHA_CARDS);
+  const keys = Object.keys(ALPHA_CARDS).filter((k) => {
+    if (k === 'curse' && room.order.length < 3) return false; // 呪詛はランダムな敵を巻き込む効果のため、3人以上でないと出現しない
+    return true;
+  });
   room.pendingAlphaPicks = new Set(room.order);
   room.alphaCandidates = {};
   for (const id of room.order) {
@@ -403,15 +408,17 @@ function advanceTurn(room, io) {
       const curseDmg = alphaSum(finishing, 'endTurnRandomEnemyDamage');
       if (curseDmg > 0) {
         const enemies = alivePlayers(room).filter((p) => p.id !== finishingId);
+        let firstTargetId = null;
         if (enemies.length > 0) {
           const target = enemies[Math.floor(Math.random() * enemies.length)];
+          firstTargetId = target.id;
           const log = [];
           log.push(`${finishing.name} の呪詛が発動した`);
           dealDamage(room, target.id, curseDmg, log, finishingId, false, true); // 固定2ダメージ(補正を受けない)
           pushLog(room, log);
         }
-        // 追加効果: 固定2ダメージとは別に、ランダムな敵1人へさらに固定1ダメージ
-        const enemies2 = alivePlayers(room).filter((p) => p.id !== finishingId);
+        // 追加効果: 固定2ダメージとは別に、まだ狙われていないランダムな敵1人へさらに固定1ダメージ
+        const enemies2 = alivePlayers(room).filter((p) => p.id !== finishingId && p.id !== firstTargetId);
         if (enemies2.length > 0) {
           const target2 = enemies2[Math.floor(Math.random() * enemies2.length)];
           const log2 = [];
@@ -458,12 +465,16 @@ function advanceTurn(room, io) {
     p.hand.push(drawn);
     p.turnDrawnCardId = drawn.instanceId;
   }
-  if (alphaSum(p, 'turnStartGamble') > 0 && p.alive) {
-    // 賭酔: 自分のターンの初めに自動で「博打」を行う
-    const gambleLog = [];
-    const gambleExtra = resolveGamble(room, p.id, gambleLog);
-    pushLog(room, gambleLog);
-    if (gambleExtra) io.to(room.roomId).emit('gambleRouletteResult', gambleExtra);
+  const gambleCount = alphaSum(p, 'turnStartGamble');
+  if (gambleCount > 0 && p.alive) {
+    // 賭酔: 自分のターンの初めに自動で「博打」を行う(複数枚持っていればその分だけ繰り返す)
+    for (let i = 0; i < gambleCount; i++) {
+      if (!p.alive) break; // 途中で自分が力尽きた場合はそこで打ち切る
+      const gambleLog = [];
+      const gambleExtra = resolveGamble(room, p.id, gambleLog);
+      pushLog(room, gambleLog);
+      if (gambleExtra) io.to(room.roomId).emit('gambleRouletteResult', gambleExtra);
+    }
   }
   broadcastState(room);
   if (checkGameEnd(room)) broadcastState(room);
@@ -506,7 +517,7 @@ function performPlayCard(room, playerId, payload, io) {
     actor.life = Math.min(actor.life + 1, 999);
     const faceDownLog = [];
     if (actor.alphaCards.includes('corruption')) {
-      applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(裏向き使用)', faceDownLog);
+      applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(裏向き使用)', faceDownLog, false, true); // 堕落のダメージはログに表示しない
     }
     pushLog(room, [...randomNotice, `${actor.name} は裏向きでカードを出した`, ...faceDownLog]);
     advanceTurn(room, io);
@@ -543,13 +554,13 @@ function performPlayCard(room, playerId, payload, io) {
   if (card.isBlack) {
     room.blackCardUsage[playerId] = (room.blackCardUsage[playerId] || 0) + 1;
     if (actor.alphaCards.includes('corruption')) {
-      applyLifeDelta(room, playerId, alphaSum(actor, 'blackUseLifeGain'), '堕落(黒いカード使用)', alphaCardLog, true);
+      applyLifeDelta(room, playerId, alphaSum(actor, 'blackUseLifeGain'), '堕落(黒いカード使用)', alphaCardLog, true, true); // 堕落の回復はログに表示しない
     }
     if (actor.alphaCards.includes('apostle')) {
       applyLifeDelta(room, playerId, -alphaSum(actor, 'blackUseLifeLoss'), '使徒(闇のカード使用)', alphaCardLog);
     }
   } else if (actor.alphaCards.includes('corruption')) {
-    applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(黒いカード以外を使用)', alphaCardLog);
+    applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(黒いカード以外を使用)', alphaCardLog, false, true); // 堕落のダメージはログに表示しない
   }
   const result = resolveEffect(room, playerId, card, { targetId, chosenCost: cost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId });
   if (result.extra && result.extra.type === 'roulette') {
@@ -922,10 +933,66 @@ io.on('connection', (socket) => {
     const room = rooms[socket.data.roomId];
     if (!room || !room.started || room.ended) return;
     if (currentPlayerId(room) !== socket.id) return;
+    const actor = room.players[socket.id];
+    if (!actor) return;
+    // 取引はコストを払えず不発になる場合、相手の手札を見ることもできない
+    const tradeCost = 3 + alphaSum(actor, 'costPenalty'); // No.6のbaseCost(3) + 翼などの補正
+    if (actor.mana < tradeCost) {
+      const sock = io.sockets.sockets.get(socket.id);
+      if (sock) sock.emit('errorMsg', 'マナが足りないため、取引を発動できません');
+      return;
+    }
     const target = room.players[targetId];
     if (!target || !target.alive || target.spectator) return;
+
+    if (target.reflectUntilTurnStart) {
+      // 反逆: 取引は相手が「自分が使用したもの」として扱われ、カード交換の選択権が相手に移る
+      room.pendingReflectedTrade = { actorId: socket.id, defenderId: targetId };
+      const actorSock = io.sockets.sockets.get(socket.id);
+      if (actorSock) actorSock.emit('errorMsg', `${target.name} の反逆により、取引の選択権が相手に移った`);
+      const defenderSock = io.sockets.sockets.get(targetId);
+      if (defenderSock) defenderSock.emit('reflectedTradeOffer', { actorId: socket.id, actorName: actor.name, hand: actor.hand });
+      return;
+    }
+
     const sock = io.sockets.sockets.get(socket.id);
     if (sock) sock.emit('handPeek', { targetId, hand: target.hand });
+  });
+
+  socket.on('confirmReflectedTrade', ({ giveInstanceId, takeInstanceId }) => {
+    const room = rooms[socket.data.roomId];
+    if (!room || !room.pendingReflectedTrade || room.pendingReflectedTrade.defenderId !== socket.id) return;
+    const { actorId } = room.pendingReflectedTrade;
+    const actor = room.players[actorId];
+    const defender = room.players[socket.id];
+    room.pendingReflectedTrade = null;
+    if (!actor || !defender) return;
+
+    const tradeCardIdx = actor.hand.findIndex((c) => c.no === 6);
+    if (tradeCardIdx === -1) return;
+    const cost = 3 + alphaSum(actor, 'costPenalty');
+    if (actor.mana < cost) {
+      pushLog(room, [`${actor.name} は「取引」を発動しようとしたが、マナが足りず不発だった`]);
+      advanceTurn(room, io);
+      return;
+    }
+    const [tradeCard] = actor.hand.splice(tradeCardIdx, 1);
+    actor.mana -= cost;
+    actor.field.push({ instanceId: tradeCard.instanceId, no: 6, name: tradeCard.name, faceUp: true, misfired: false });
+    if (tradeCard.isBlack) room.blackCardUsage[actorId] = (room.blackCardUsage[actorId] || 0) + 1;
+
+    const giveIdx = defender.hand.findIndex((c) => c.instanceId === giveInstanceId);
+    const takeIdx = actor.hand.findIndex((c) => c.instanceId === takeInstanceId);
+    const log = [`${actor.name} は「取引」を発動した(コスト${cost})`];
+    if (giveIdx >= 0 && takeIdx >= 0) {
+      const [giveCard] = defender.hand.splice(giveIdx, 1);
+      const [takeCard] = actor.hand.splice(takeIdx, 1);
+      defender.hand.push(takeCard);
+      actor.hand.push(giveCard);
+      log.push(`${defender.name} は反逆の効果で取引の選択権を得て、${actor.name} と交換した`);
+    }
+    pushLog(room, log);
+    advanceTurn(room, io);
   });
 
   socket.on('playCard', (payload) => {

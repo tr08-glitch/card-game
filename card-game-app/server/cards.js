@@ -65,26 +65,26 @@ function adjustHandCapAfterAlphaChange(room, player, log) {
 
 // ライフの増減(ダメージ以外の要因)。増加は狂化の「回復できない」対象になり、初期ライフを超えない。
 // 減少は上限なく適用され、0以下で撃破扱いになる(ただしこの経路での撃破はアルファカードの継承を行わない)。
-function applyLifeDelta(room, playerId, delta, reason, log, uncapped) {
+function applyLifeDelta(room, playerId, delta, reason, log, uncapped, silent) {
   const p = room.players[playerId];
   if (!p || !p.alive || delta === 0) return;
   if (delta > 0) {
     if (alphaSum(p, 'noHeal') > 0) {
-      log.push(`${p.name} は${reason}でライフが回復するはずだったが、狂化により回復しなかった`);
+      if (!silent) log.push(`${p.name} は${reason}でライフが回復するはずだったが、狂化により回復しなかった`);
       return;
     }
     const before = p.life;
     const capped = uncapped ? p.life + delta : Math.min(p.life + delta, p.initialLife);
     p.life = Math.max(p.life, capped); // 既に上限を超えている場合でも回復で減らさない
-    if (p.life > before) log.push(`${p.name} のライフが ${p.life - before} 増加した(${reason}、現在 ${p.life})`);
+    if (!silent && p.life > before) log.push(`${p.name} のライフが ${p.life - before} 増加した(${reason}、現在 ${p.life})`);
   } else {
     const before = p.life;
     p.life = Math.max(0, p.life + delta);
-    log.push(`${p.name} のライフが ${before - p.life} 減少した(${reason}、現在 ${p.life})`);
+    if (!silent) log.push(`${p.name} のライフが ${before - p.life} 減少した(${reason}、現在 ${p.life})`);
     if (p.life <= 0) {
       p.alive = false;
       p.spectator = true;
-      log.push(`${p.name} は力尽き、観戦に回った`);
+      log.push(`${p.name} は力尽き、観戦に回った`); // 死亡は堕落関連でも常に表示する
     }
   }
 }
@@ -232,7 +232,13 @@ function dealDamage(room, targetId, amount, log, attackerId, _reflected, fixed) 
     if (attackerId && room.players[attackerId] && p.alphaCards && p.alphaCards.length > 0) {
       const killer = room.players[attackerId];
       const gained = p.alphaCards.map((key) => (ALPHA_CARDS[key] ? ALPHA_CARDS[key].name : key));
+      const lifeBonusBefore = alphaSum(killer, 'lifeBonus');
       killer.alphaCards.push(...p.alphaCards);
+      const lifeBonusDelta = alphaSum(killer, 'lifeBonus') - lifeBonusBefore;
+      if (lifeBonusDelta !== 0) {
+        killer.initialLife = Math.max(1, killer.initialLife + lifeBonusDelta);
+        log.push(`${killer.name} の最大ライフが ${lifeBonusDelta > 0 ? '+' : ''}${lifeBonusDelta} された(現在の上限 ${killer.initialLife})`);
+      }
       p.alphaCards = [];
       log.push(`${killer.name} は ${p.name} のアルファカード(${gained.join('、')})を手に入れた`);
       adjustHandCapAfterAlphaChange(room, killer, log);
@@ -361,15 +367,19 @@ function resolveEffect(room, actingId, card, opts = {}) {
         } else if (diff > 0) {
           const dmg = ceilDiv((diff * cost) / 6);
           dealDamage(room, t, dmg, log, actingId);
-          const manaMove = Math.min(ceilDiv(diff / 2), room.players[t].mana);
-          loseMana(room, t, manaMove, log);
-          gainMana(room, actingId, manaMove, log);
+          const manaMove = Math.max(0, Math.min(ceilDiv(diff / 2), room.players[t].mana));
+          if (manaMove > 0) {
+            loseMana(room, t, manaMove, log);
+            gainMana(room, actingId, manaMove, log);
+          }
         } else {
           const dmg = ceilDiv((-diff * cost) / 6);
           dealDamage(room, actingId, dmg, log, actingId);
-          const manaMove = Math.min(ceilDiv(-diff / 2), actor.mana);
-          loseMana(room, actingId, manaMove, log);
-          gainMana(room, t, manaMove, log);
+          const manaMove = Math.max(0, Math.min(ceilDiv(-diff / 2), actor.mana));
+          if (manaMove > 0) {
+            loseMana(room, actingId, manaMove, log);
+            gainMana(room, t, manaMove, log);
+          }
         }
       }
       break;
@@ -494,8 +504,13 @@ function resolveEffect(room, actingId, card, opts = {}) {
       (id) => id !== actingId && room.players[id] && room.players[id].life < lifeBeforeSnapshot[id]
     );
     if (dealtToOthers) {
-      dealDamage(room, actingId, 1, log);
-      log.push(`${actor.name} は魔剣の反動を受けた`);
+      const recoilLog = [];
+      const wasAlive = actor.alive;
+      dealDamage(room, actingId, 1, recoilLog); // 魔剣の反動ダメージ自体はログに表示しない
+      if (wasAlive && !actor.alive) {
+        // ただし反動で力尽きた場合は、その結果(死亡・アルファカード譲渡)だけは表示する
+        log.push(...recoilLog.filter((line) => line.includes('力尽き') || line.includes('アルファカード')));
+      }
     }
   }
 
