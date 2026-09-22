@@ -83,6 +83,8 @@ const ALPHA_CARD_INFO = {
   apostle: { name: '使徒', cost: '-', effect: '初期ライフ+3。専用カード「神罰」が使えるようになる。黒いカードを使うとライフ-4。' },
   curse: { name: '呪詛', cost: '-', effect: '初期ライフ+3。自分のターンの終わりに、ランダムな敵1人へ固定2ダメージ、さらに別のランダムな敵1人へ固定1ダメージ(どちらも補正を受けない)。その代わり受けるダメージ+1。' },
   gambler: { name: '賭酔', cost: '-', effect: '自分のターンの初めに自動で「博打」の効果が発動する:全員でルーレットを回し(自分の出目には+2のボーナス)、各自「自分の出目-全員の平均値」分だけマナが増減する(合計は必ず0になる再分配。マナがマイナスになることもある)。加えて、ルーレットを使うカード全般(賭博など)で自分の出目に常に+1。その代わりマナが自然回復しなくなる。' },
+  regen: { name: '再生', cost: '-', effect: 'ライフが0以下になった時、一度だけライフが初期ライフまで戻って生き延びる(この効果はゲーム中1回のみ)。その代わり、自分が与えるダメージが-1される。' },
+  karakuri: { name: '絡繰', cost: '-', effect: '致命的なダメージを受けてライフが0を下回りそうな時、2マナを1ライフの代わりとして消費し、その分だけライフ0で踏みとどまれる(マナが足りない分は通常通りダメージを受ける)。例:ライフ3・マナ6の状態で5ダメージを受けると、ライフ0・マナ2で耐える。その代わり初期ライフ-3。' },
 };
 
 const EXCLUSIVE_CARD_INFO = {
@@ -371,10 +373,14 @@ function buildCardCountList(mode) {
 
 $('btnGameSettings').onclick = () => { populateGameSettingsFields(); setGameSettingsEditable(true); syncTurnLimitFieldState(); syncAlphaVisibilityRow(); openOverlay('gameSettingsOverlay'); };
 $('btnGameSettingsView').onclick = () => { populateGameSettingsFields(); setGameSettingsEditable(false); syncAlphaVisibilityRow(); openOverlay('gameSettingsOverlay'); };
-$('chkTurnLimit').onchange = syncTurnLimitFieldState;
+$('selWinMode').onchange = syncTurnLimitFieldState;
 $('selGameMode').onchange = syncAlphaVisibilityRow;
 function syncTurnLimitFieldState() {
-  $('turnLimitNum').disabled = !$('chkTurnLimit').checked;
+  const mode = $('selWinMode').value;
+  $('rowTurnLimit').classList.toggle('hidden', mode !== 'turnLimit');
+  $('rowSuddenDeathTime').classList.toggle('hidden', mode !== 'suddenDeath');
+  $('turnLimitNum').disabled = mode !== 'turnLimit';
+  $('suddenDeathTimeNum').disabled = mode !== 'suddenDeath';
 }
 function syncAlphaVisibilityRow() {
   const isAlpha = $('selGameMode').value === 'alpha';
@@ -384,8 +390,9 @@ function populateGameSettingsFields() {
   const s = (latestState && latestState.settings) || {};
   $('selGameMode').value = s.mode === 'alpha' ? 'alpha' : 'classic';
   $('initialLifeNum').value = s.initialLife != null ? s.initialLife : 10;
-  $('chkTurnLimit').checked = !!s.turnLimitEnabled;
+  $('selWinMode').value = s.winMode === 'turnLimit' || s.winMode === 'suddenDeath' ? s.winMode : 'default';
   $('turnLimitNum').value = s.turnLimit != null ? s.turnLimit : 20;
+  $('suddenDeathTimeNum').value = s.suddenDeathTime != null ? s.suddenDeathTime : 20;
   $('chkChat').checked = s.chatEnabled !== false;
   $('chkShowLife').checked = s.showEnemyLife !== false;
   $('chkShowMana').checked = s.showEnemyMana !== false;
@@ -395,8 +402,8 @@ function populateGameSettingsFields() {
   syncAlphaVisibilityRow();
 }
 function setGameSettingsEditable(editable) {
-  ['selGameMode', 'initialLifeNum', 'chkTurnLimit', 'turnLimitNum', 'chkChat', 'chkShowLife', 'chkShowMana', 'chkShowHandCount', 'chkAlphaVisibility'].forEach((id) => { $(id).disabled = !editable; });
-  if (!editable) $('turnLimitNum').disabled = true;
+  ['selGameMode', 'initialLifeNum', 'selWinMode', 'turnLimitNum', 'suddenDeathTimeNum', 'chkChat', 'chkShowLife', 'chkShowMana', 'chkShowHandCount', 'chkAlphaVisibility'].forEach((id) => { $(id).disabled = !editable; });
+  if (!editable) { $('turnLimitNum').disabled = true; $('suddenDeathTimeNum').disabled = true; }
   $('btnGameSettingsCancel').classList.toggle('hidden', !editable);
   $('btnGameSettingsDefault').classList.toggle('hidden', !editable);
   $('btnApplySettings').classList.toggle('hidden', !editable);
@@ -407,8 +414,9 @@ $('btnGameSettingsClose').onclick = () => closeOverlay('gameSettingsOverlay');
 $('btnGameSettingsDefault').onclick = () => {
   $('selGameMode').value = 'classic';
   $('initialLifeNum').value = 10;
-  $('chkTurnLimit').checked = false;
+  $('selWinMode').value = 'default';
   $('turnLimitNum').value = 20;
+  $('suddenDeathTimeNum').value = 20;
   $('chkChat').checked = true;
   $('chkShowLife').checked = true;
   $('chkShowMana').checked = true;
@@ -418,11 +426,14 @@ $('btnGameSettingsDefault').onclick = () => {
   syncAlphaVisibilityRow();
 };
 $('btnApplySettings').onclick = () => {
+  const winMode = $('selWinMode').value;
   socket.emit('setGameSettings', {
     mode: $('selGameMode').value === 'alpha' ? 'alpha' : 'classic',
     initialLife: parseInt($('initialLifeNum').value, 10) || 10,
-    turnLimitEnabled: $('chkTurnLimit').checked,
+    winMode,
+    turnLimitEnabled: winMode === 'turnLimit',
     turnLimit: parseInt($('turnLimitNum').value, 10) || 20,
+    suddenDeathTime: parseInt($('suddenDeathTimeNum').value, 10) || 20,
     chatEnabled: $('chkChat').checked,
     showEnemyLife: $('chkShowLife').checked,
     showEnemyMana: $('chkShowMana').checked,
@@ -946,7 +957,15 @@ function updateChatTargetSelect(sel, state) {
 function renderGame(state) {
   setTableBackground(state.players.length);
   $('deckCount').textContent = state.deckCount;
-  $('turnInfo').textContent = state.turnLimitEnabled ? `${state.turnCount}/${state.turnLimit}` : '∞';
+  const winMode = (state.settings && state.settings.winMode) || 'default';
+  if (winMode === 'turnLimit') {
+    $('turnInfo').textContent = `${state.turnCount}/${state.turnLimit}`;
+  } else if (winMode === 'suddenDeath') {
+    const sdTime = (state.settings && state.settings.suddenDeathTime) || 20;
+    $('turnInfo').textContent = state.suddenDeathActive ? 'サドンデス中' : `${state.turnCount}/${sdTime}(SD)`;
+  } else {
+    $('turnInfo').textContent = '∞';
+  }
 
   const me = state.players.find((p) => p.id === myId);
   const others = state.players.filter((p) => p.id !== myId);

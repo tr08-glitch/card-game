@@ -155,8 +155,15 @@
       </select>
     </div>
     <div class="settingsRow"><span>初期ライフ</span><input type="number" id="initialLifeNum" value="10" min="1" max="99" /></div>
-    <div class="settingsRow"><span>ターン制</span><input type="checkbox" id="chkTurnLimit" /></div>
-    <div class="settingsRow"><span>ターン数</span><input type="number" id="turnLimitNum" value="20" /></div>
+    <div class="settingsRow"><span>勝敗方法</span>
+      <select id="selWinMode">
+        <option value="default">デフォルト(ターン数無制限、山札切れで終了)</option>
+        <option value="turnLimit">ターン制</option>
+        <option value="suddenDeath">サドンデス制(最後の1人になるまで終了しない)</option>
+      </select>
+    </div>
+    <div class="settingsRow" id="rowTurnLimit"><span>ターン数</span><input type="number" id="turnLimitNum" value="20" /></div>
+    <div class="settingsRow" id="rowSuddenDeathTime"><span>サドンデスタイム</span><input type="number" id="suddenDeathTimeNum" value="20" /></div>
     <div class="settingsRow"><span>ゲーム中のチャット</span><input type="checkbox" id="chkChat" checked /></div>
     <div class="settingsRow"><span>敵ライフの表示</span><input type="checkbox" id="chkShowLife" checked /></div>
     <div class="settingsRow"><span>敵マナの表示</span><input type="checkbox" id="chkShowMana" checked /></div>
