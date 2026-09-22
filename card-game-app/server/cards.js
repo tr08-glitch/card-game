@@ -13,13 +13,13 @@ const ALPHA_CARDS = {
   magicSword: { name: '魔剣', damageBonus: 3, recoilPerUse: 1 },
   wings: { name: '翼', extraHand: 1, costPenalty: 1 },
   muscle: { name: '筋肉', lifeBonus: 7, damageBonus: 2, damageReduction: 2, extraHand: -1 },
-  berserk: { name: '狂化', lifeBonus: 13, damageBonus: 2, noHeal: true },
+  berserk: { name: '狂化', lifeBonus: 13, damageBonus: 2, endTurnSelfDamage: 1 },
   corruption: { name: '堕落', damagePerTwoBlackUsed: 1, blackUseLifeGain: 2, otherUseLifeLoss: 1 },
   apostle: { name: '使徒', lifeBonus: 3, exclusiveCard: 'divinePunishment', blackUseLifeLoss: 4 },
   curse: { name: '呪詛', lifeBonus: 3, endTurnRandomEnemyDamage: 2, damageTakenBonus: 1 },
   gambler: { name: '賭酔', rouletteBonus: 1, turnStartGamble: true, manaRegenPenalty: 1 },
   regen: { name: '再生', damageBonus: -1, reviveOnce: true },
-  karakuri: { name: '絡繰', lifeBonus: -3, manaAsLifeBuffer: true },
+  karakuri: { name: '絡繰', lifeBonus: -3, manaAsLifeBuffer: true, manaOnFaceUp: 1 },
 };
 
 const EXCLUSIVE_CARD_INFO = {
@@ -337,6 +337,10 @@ function resolveEffect(room, actingId, card, opts = {}) {
     }
     case 6: { // 取引: 相手の手札から1枚選び、自分の手札1枚と交換する
       const t = opts.targetId;
+      if (t && room.players[t] && room.players[t].shielded) {
+        log.push(`${room.players[t].name} は防御中のため取引を防いだ`); // 豪運に付属する防御も含む
+        break;
+      }
       if (t && room.players[t] && opts.tradeGiveInstanceId && opts.tradeTakeInstanceId) {
         const target = room.players[t];
         const giveIdx = actor.hand.findIndex((c) => c.instanceId === opts.tradeGiveInstanceId);
@@ -352,32 +356,38 @@ function resolveEffect(room, actingId, card, opts = {}) {
       break;
     }
     case 7: { // 賭博
-      const t = opts.targetId;
+      let attacker = actingId;
+      let t = opts.targetId;
+      if (t && room.players[t] && room.players[t].reflectUntilTurnStart && t !== actingId) {
+        log.push(`${room.players[t].name} は反逆の効果で賭博を跳ね返した`);
+        const swap = attacker; attacker = t; t = swap;
+      }
       const cost = opts.chosenCost || 1;
       if (t) {
-        const selfRoll = Math.min(10, Math.floor(Math.random() * 10) + 1 + 2 + alphaSum(actor, 'rouletteBonus'));
+        const attackerPlayer = room.players[attacker];
+        const selfRoll = Math.min(10, Math.floor(Math.random() * 10) + 1 + 2 + alphaSum(attackerPlayer, 'rouletteBonus'));
         const targetRoll = Math.min(10, Math.floor(Math.random() * 10) + 1 + alphaSum(room.players[t], 'rouletteBonus'));
-        log.push(`${actor.name} のルーレット: ${selfRoll} / ${room.players[t].name} のルーレット: ${targetRoll}`);
-        extra = { type: 'roulette', actorId: actingId, actorName: actor.name, actorRoll: selfRoll, targetIdRoll: t, targetName: room.players[t].name, targetRoll };
+        log.push(`${attackerPlayer.name} のルーレット: ${selfRoll} / ${room.players[t].name} のルーレット: ${targetRoll}`);
+        extra = { type: 'roulette', actorId: attacker, actorName: attackerPlayer.name, actorRoll: selfRoll, targetIdRoll: t, targetName: room.players[t].name, targetRoll };
         const diff = selfRoll - targetRoll;
         if (diff === 0) {
-          dealDamage(room, actingId, cost, log, actingId);
-          dealDamage(room, t, cost, log, actingId);
+          dealDamage(room, attacker, cost, log, attacker);
+          dealDamage(room, t, cost, log, attacker);
           log.push('引き分け:お互いコスト分のダメージを受けた');
         } else if (diff > 0) {
           const dmg = ceilDiv((diff * cost) / 6);
-          dealDamage(room, t, dmg, log, actingId);
+          dealDamage(room, t, dmg, log, attacker);
           const manaMove = Math.max(0, Math.min(ceilDiv(diff / 2), room.players[t].mana));
           if (manaMove > 0) {
             loseMana(room, t, manaMove, log);
-            gainMana(room, actingId, manaMove, log);
+            gainMana(room, attacker, manaMove, log);
           }
         } else {
           const dmg = ceilDiv((-diff * cost) / 6);
-          dealDamage(room, actingId, dmg, log, actingId);
-          const manaMove = Math.max(0, Math.min(ceilDiv(-diff / 2), actor.mana));
+          dealDamage(room, attacker, dmg, log, attacker);
+          const manaMove = Math.max(0, Math.min(ceilDiv(-diff / 2), room.players[attacker].mana));
           if (manaMove > 0) {
-            loseMana(room, actingId, manaMove, log);
+            loseMana(room, attacker, manaMove, log);
             gainMana(room, t, manaMove, log);
           }
         }
@@ -453,7 +463,14 @@ function resolveEffect(room, actingId, card, opts = {}) {
       if (scale === 'small') {
         if (pick === 0) { log.push('【つむじ風】が発動'); for (const p of targets) dealDamage(room, p.id, p.id === actingId ? 2 : 3, log, actingId); for (const p of targets) loseMana(room, p.id, 2, log); }
         else if (pick === 1) { log.push('【落石】が発動'); for (let i = 0; i < 4; i++) { const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, 2, log, actingId); } }
-        else if (pick === 2) { log.push('【混乱】が発動'); const hands = targets.map((p) => p.hand); for (let i = 0; i < targets.length; i++) targets[i].hand = hands[(i + 1) % hands.length]; log.push('全プレイヤーの手札が入れ替わった'); }
+        else if (pick === 2) {
+          log.push('【混乱】が発動');
+          const hands = targets.map((p) => p.hand);
+          for (let i = 0; i < targets.length; i++) targets[i].hand = hands[(i + 1) % hands.length];
+          log.push('全プレイヤーの手札が入れ替わった');
+          // 筋肉(手札上限1)・翼(手札上限3)など、各プレイヤーの手札上限は入れ替え後も自分自身のものが適用される
+          for (const p of targets) adjustHandCapAfterAlphaChange(room, p, log);
+        }
         else {
           // 裁判: 全員の投票を待つ必要があるため、ここでは開始の合図だけを出す(実際の集計はサーバー側の投票フローで行う)
           log.push('【裁判】が発動。全員の投票を待っています…');
@@ -467,7 +484,7 @@ function resolveEffect(room, actingId, card, opts = {}) {
       } else {
         if (pick === 0) { log.push('【テンペスト】が発動'); for (const p of targets) p.life = Math.max(1, Math.min(3, Math.floor(Math.random() * 3) + 1)); log.push('全員のライフが1〜3のいずれかになった'); }
         else if (pick === 1) { log.push('【スターレイン】が発動'); for (let i = 0; i < 10; i++) { const t = targets[Math.floor(Math.random() * targets.length)]; if (t) dealDamage(room, t.id, Math.floor(Math.random() * 3) + 1, log, actingId); } }
-        else if (pick === 2) { log.push('【アノマリー】が発動'); room.chaosBlackBias = true; for (const p of targets) { room.deck.push(...p.hand); p.hand = []; } shuffle(room.deck); for (const p of targets) { const upper = 1 + Math.floor(Math.random() * 4); for (let i = 0; i < upper && room.deck.length > 0; i++) p.hand.push(room.deck.pop()); healLife(room, p.id, 7 - p.hand.length, log, p.initialLife); } }
+        else if (pick === 2) { log.push('【アノマリー】が発動'); room.chaosBlackBias = true; for (const p of targets) { room.deck.push(...p.hand); p.hand = []; } shuffle(room.deck); for (const p of targets) { const upper = 1 + Math.floor(Math.random() * 4); for (let i = 0; i < upper && room.deck.length > 0; i++) p.hand.push(room.deck.pop()); healLife(room, p.id, 7 - p.hand.length, log); } }
         else { log.push('【ラグナロク】が発動'); for (const p of targets) { const faceDownCount = p.field.filter((f) => !f.faceUp).length; dealDamage(room, p.id, Math.max(0, 12 - faceDownCount), log, actingId); } }
       }
       break;
@@ -506,9 +523,12 @@ function resolveEffect(room, actingId, card, opts = {}) {
     if (dealtToOthers) {
       const recoilLog = [];
       const wasAlive = actor.alive;
-      dealDamage(room, actingId, 1, recoilLog); // 魔剣の反動ダメージ自体はログに表示しない
-      if (wasAlive && !actor.alive) {
-        // ただし反動で力尽きた場合は、その結果(死亡・アルファカード譲渡)だけは表示する
+      dealDamage(room, actingId, 1, recoilLog);
+      const hideAlphaLog = room.settings && room.settings.alphaCardVisibility === false;
+      if (!hideAlphaLog) {
+        log.push(...recoilLog); // 可視化がオンの時は、魔剣の反動ダメージも通常通り表示する
+      } else if (wasAlive && !actor.alive) {
+        // 可視化がオフでも、反動で力尽きた場合の結果(死亡・アルファカード譲渡)だけは表示する
         log.push(...recoilLog.filter((line) => line.includes('力尽き') || line.includes('アルファカード')));
       }
     }
@@ -523,7 +543,7 @@ function resolveDivinePunishment(room, actingId, targetId, log) {
   const target = room.players[targetId];
   if (!actor || !target || !target.alive) return;
   const blackUsed = room.blackCardUsage ? (room.blackCardUsage[targetId] || 0) : 0;
-  const dmg = 3 + Math.floor(blackUsed / 2);
+  const dmg = 3 + Math.floor(blackUsed / 1.5);
   log.push(`${actor.name} は「神罰」を発動した`);
   dealDamage(room, targetId, dmg, log, actingId);
 }

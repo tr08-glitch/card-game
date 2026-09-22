@@ -399,11 +399,16 @@ function advanceTurn(room, io) {
       const heal = alphaSum(finishing, 'endTurnHeal');
       if (heal > 0) {
         const before = finishing.life;
-        const capped = Math.min(finishing.life + heal, finishing.initialLife);
-        finishing.life = Math.max(finishing.life, capped);
-        if (finishing.life > before) {
+        finishing.life += heal; // 加護: 自動回復に上限はない(初期ライフを超えてよい)
+        if (finishing.life > before && room.settings && room.settings.alphaCardVisibility !== false) {
           pushLog(room, [`${finishing.name} のライフが ${finishing.life - before} 回復した(加護、現在 ${finishing.life})`]);
         }
+      }
+      const berserkDmg = alphaSum(finishing, 'endTurnSelfDamage');
+      if (berserkDmg > 0 && finishing.alive) {
+        const selfLog = [];
+        dealDamage(room, finishingId, berserkDmg, selfLog, finishingId, false, true); // 狂化: 毎ターン終了時に固定ダメージ(補正なし)
+        pushLog(room, selfLog);
       }
       const curseDmg = alphaSum(finishing, 'endTurnRandomEnemyDamage');
       if (curseDmg > 0) {
@@ -492,6 +497,7 @@ function performPlayCard(room, playerId, payload, io) {
   if (!actor) return;
   let { instanceId, faceUp, targetId, chosenCost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId } = payload;
   let randomizedThisTurn = false;
+  const hideAlphaLog = room.settings && room.settings.alphaCardVisibility === false; // 可視化オフの時は、堕落・使徒・魔剣などの細かい増減をログに出さない
 
   if (actor.randomizedTurnsLeft > 0 && actor.hand.length > 0) {
     // 魘の効果: 表裏・出すカード・対象・コストを強制的にランダム化する
@@ -517,7 +523,7 @@ function performPlayCard(room, playerId, payload, io) {
     actor.life = Math.min(actor.life + 1, 999);
     const faceDownLog = [];
     if (actor.alphaCards.includes('corruption')) {
-      applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(裏向き使用)', faceDownLog, false, true); // 堕落のダメージはログに表示しない
+      applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(裏向き使用)', faceDownLog, false, hideAlphaLog);
     }
     pushLog(room, [...randomNotice, `${actor.name} は裏向きでカードを出した`, ...faceDownLog]);
     advanceTurn(room, io);
@@ -548,19 +554,21 @@ function performPlayCard(room, playerId, payload, io) {
   }
 
   actor.mana -= cost;
+  const karakuriBonus = alphaSum(actor, 'manaOnFaceUp');
+  if (karakuriBonus > 0) actor.mana += karakuriBonus; // 絡繰: カードを表向きで出すとマナ+1
   if (isStealth) fieldEntry.stealth = true;
   actor.field.push(fieldEntry);
   const alphaCardLog = [];
   if (card.isBlack) {
     room.blackCardUsage[playerId] = (room.blackCardUsage[playerId] || 0) + 1;
     if (actor.alphaCards.includes('corruption')) {
-      applyLifeDelta(room, playerId, alphaSum(actor, 'blackUseLifeGain'), '堕落(黒いカード使用)', alphaCardLog, true, true); // 堕落の回復はログに表示しない
+      applyLifeDelta(room, playerId, alphaSum(actor, 'blackUseLifeGain'), '堕落(黒いカード使用)', alphaCardLog, true, hideAlphaLog);
     }
     if (actor.alphaCards.includes('apostle')) {
-      applyLifeDelta(room, playerId, -alphaSum(actor, 'blackUseLifeLoss'), '使徒(闇のカード使用)', alphaCardLog);
+      applyLifeDelta(room, playerId, -alphaSum(actor, 'blackUseLifeLoss'), '使徒(闇のカード使用)', alphaCardLog, false, hideAlphaLog);
     }
   } else if (actor.alphaCards.includes('corruption')) {
-    applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(黒いカード以外を使用)', alphaCardLog, false, true); // 堕落のダメージはログに表示しない
+    applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(黒いカード以外を使用)', alphaCardLog, false, hideAlphaLog);
   }
   const result = resolveEffect(room, playerId, card, { targetId, chosenCost: cost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId });
   if (result.extra && result.extra.type === 'roulette') {
@@ -945,6 +953,13 @@ io.on('connection', (socket) => {
     const target = room.players[targetId];
     if (!target || !target.alive || target.spectator) return;
 
+    if (target.shielded) {
+      // 防御中(豪運に付属する防御も含む)の相手には取引を仕掛けられない
+      const actorSock = io.sockets.sockets.get(socket.id);
+      if (actorSock) actorSock.emit('errorMsg', `${target.name} は防御中のため、取引を発動できません`);
+      return;
+    }
+
     if (target.reflectUntilTurnStart) {
       // 反逆: 取引は相手が「自分が使用したもの」として扱われ、カード交換の選択権が相手に移る
       room.pendingReflectedTrade = { actorId: socket.id, defenderId: targetId };
@@ -978,6 +993,8 @@ io.on('connection', (socket) => {
     }
     const [tradeCard] = actor.hand.splice(tradeCardIdx, 1);
     actor.mana -= cost;
+    const karakuriBonus = alphaSum(actor, 'manaOnFaceUp');
+    if (karakuriBonus > 0) actor.mana += karakuriBonus; // 絡繰: カードを表向きで出すとマナ+1
     actor.field.push({ instanceId: tradeCard.instanceId, no: 6, name: tradeCard.name, faceUp: true, misfired: false });
     if (tradeCard.isBlack) room.blackCardUsage[actorId] = (room.blackCardUsage[actorId] || 0) + 1;
 
