@@ -129,6 +129,23 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 .nameInput { width: 100%; padding: 0.6em 0.8em; font-size: 1em; }
 .titleMenu { display: flex; flex-direction: column; gap: 0.8em; width: 220px; margin-top: 1em; }
 .menuBtn { padding: 0.8em; font-size: 1.05em; border-radius: 8px; }
+.iconPickerBtn {
+  display: flex; align-items: center; gap: 0.6em; margin: 0.8em 0;
+  background: #241536; border: 1px solid var(--border-gold); border-radius: 8px;
+  padding: 0.5em 1em; color: var(--text-main); cursor: pointer; font-size: 0.95em;
+}
+.iconPickerBtn:hover { background: #2c1e46; }
+.selectedIconPreview { width: 2.4em; height: 2.4em; border-radius: 50%; }
+.iconPickerGrid { display: flex; flex-wrap: wrap; gap: 0.8em; justify-content: center; padding: 1em 0; }
+.iconPickerOption {
+  width: 4em; height: 4em; border-radius: 50%; cursor: pointer;
+  border: 2px solid transparent; transition: border-color 0.15s;
+}
+.iconPickerOption:hover { border-color: var(--border-gold); }
+.iconPickerOption.selected { border-color: var(--accent-gold); box-shadow: 0 0 10px rgba(224, 185, 90, 0.6); }
+.playerIcon { width: 1.6em; height: 1.6em; border-radius: 50%; vertical-align: middle; }
+.selfIconImg { width: 2em; height: 2em; margin-bottom: 0.2em; }
+
 .creditsBtn {
   position: absolute; right: 2em; bottom: 1.6em; border-radius: 999px; opacity: 0.8;
 }
@@ -195,8 +212,10 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .oppAvatar {
   width: 2.4em; height: 2.4em; border-radius: 50%; background: #2e1d4a; border: 1px solid #5a4478;
-  display: flex; align-items: center; justify-content: center; font-size: 1.2em;
+  display: flex; align-items: center; justify-content: center; font-size: 1.2em; position: relative;
 }
+.oppAvatar .playerIcon { width: 100%; height: 100%; }
+.oppAvatar .shieldBadge { position: absolute; bottom: -0.3em; right: -0.3em; font-size: 0.7em; }
 .oppName { font-size: 0.95em; }
 .oppHandCount { font-size: 0.8em; color: var(--text-dim); }
 .oppFieldMini { font-size: 0.75em; color: var(--text-dim); }

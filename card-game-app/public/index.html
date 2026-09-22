@@ -16,12 +16,26 @@
     <h1 class="gameTitle">混沌</h1>
     <input id="nameInput" class="nameInput" placeholder="プレイヤー名(1〜15文字)" maxlength="15" />
 
+    <button id="btnOpenIconPicker" class="iconPickerBtn">
+      <img id="selectedIconPreview" class="selectedIconPreview" src="images/icons/icon_star.svg" alt="アイコン" />
+      <span>プレイヤーアイコン設定</span>
+    </button>
+
     <div class="titleMenu">
       <button id="btnAiBattle" class="menuBtn">AI戦</button>
       <button id="btnCreateRoom" class="menuBtn">ルーム作成</button>
       <button id="btnJoinRoom" class="menuBtn">ルーム参加</button>
       <button id="btnTitleMenuRules" class="menuBtn">ルール</button>
       <button id="btnTitleMenuCardList" class="menuBtn">カード一覧</button>
+    </div>
+  </div>
+
+  <!-- プレイヤーアイコン選択 -->
+  <div id="iconPickerOverlay" class="overlay hidden">
+    <div class="overlayPanel wide">
+      <button id="btnCloseIconPicker" class="closeX">×</button>
+      <div class="fieldLabel">プレイヤーアイコンを選択</div>
+      <div id="iconPickerGrid" class="iconPickerGrid"></div>
     </div>
   </div>
 
@@ -44,10 +58,18 @@
   <div id="aiOverlay" class="overlay hidden">
     <div class="overlayPanel">
       <button id="btnCloseAi" class="closeX">×</button>
+      <p>対戦人数(自分を含む)</p>
+      <select id="aiPlayerCount">
+        <option value="2">2人(自分+AI1体)</option>
+        <option value="3">3人(自分+AI2体)</option>
+        <option value="4">4人(自分+AI3体)</option>
+        <option value="5">5人(自分+AI4体)</option>
+        <option value="6">6人(自分+AI5体)</option>
+      </select>
       <p>AIの強さ</p>
       <input id="aiDifficulty" type="range" min="1" max="10" value="5" />
       <div><span id="aiDifficultyLabel">5</span> / 10</div>
-      <button id="btnStartAi">対戦開始(準備中)</button>
+      <button id="btnStartAi">対戦開始</button>
     </div>
   </div>
 
@@ -189,6 +211,7 @@
     <div id="myField" class="myField"></div>
 
     <div id="selfInfo" class="selfInfoFixed">
+      <img id="selfIcon" class="playerIcon selfIconImg" src="images/icons/icon_star.svg" alt="" />
       <div class="selfInfoStats">
         <span class="lifeTag">♡<span id="selfLife">-</span></span>
         <span class="manaTag">★<span id="selfMana">-</span></span>
@@ -323,6 +346,14 @@
       <div class="rouletteName" id="rouletteTargetName"></div>
       <div class="rouletteNumber" id="rouletteTargetNumber">?</div>
     </div>
+  </div>
+</div>
+
+<!-- ===== 博打: 全員ルーレット演出 ===== -->
+<div id="gambleRouletteOverlay" class="overlay hidden">
+  <div class="overlayPanel">
+    <div class="fieldLabel">博打</div>
+    <div class="rouletteWheelsWrap" id="gambleRouletteWheels" style="flex-wrap:wrap;"></div>
   </div>
 </div>
 

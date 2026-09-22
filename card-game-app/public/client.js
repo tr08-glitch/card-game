@@ -6,6 +6,42 @@ let selectedCard = null;
 
 const $ = (id) => document.getElementById(id);
 
+// ========== プレイヤーアイコン ==========
+const PLAYER_ICONS = [
+  'icon_star', 'icon_moon', 'icon_flame', 'icon_leaf', 'icon_skull',
+  'icon_crystal', 'icon_eye', 'icon_wolf', 'icon_crown', 'icon_wave',
+];
+function iconPath(key) {
+  const k = PLAYER_ICONS.includes(key) ? key : PLAYER_ICONS[0];
+  return `images/icons/${k}.svg`;
+}
+function getSelectedIcon() {
+  try {
+    const saved = localStorage.getItem('playerIcon');
+    if (saved && PLAYER_ICONS.includes(saved)) return saved;
+  } catch (e) { /* localStorageが使えない環境でも動くようにする */ }
+  return PLAYER_ICONS[0];
+}
+function setSelectedIcon(key) {
+  try { localStorage.setItem('playerIcon', key); } catch (e) { /* ignore */ }
+  $('selectedIconPreview').src = iconPath(key);
+}
+$('selectedIconPreview').src = iconPath(getSelectedIcon());
+$('btnOpenIconPicker').onclick = () => {
+  const grid = $('iconPickerGrid');
+  grid.innerHTML = '';
+  const current = getSelectedIcon();
+  for (const key of PLAYER_ICONS) {
+    const img = document.createElement('img');
+    img.src = iconPath(key);
+    img.className = 'iconPickerOption' + (key === current ? ' selected' : '');
+    img.onclick = () => { setSelectedIcon(key); closeOverlay('iconPickerOverlay'); };
+    grid.appendChild(img);
+  }
+  openOverlay('iconPickerOverlay');
+};
+$('btnCloseIconPicker').onclick = () => closeOverlay('iconPickerOverlay');
+
 // ==== カード情報(表示用。効果ロジックはサーバー側 cards.js が正) ====
 // 「クラシックカード」= 通常のNo.1〜13+シークレットの、クラシック/アルファ両モード共通の基本カード群
 const CARD_INFO = {
@@ -120,7 +156,7 @@ $('btnTitleMenuCardList').onclick = () => { buildCardListOverlay(); openOverlay(
 
 $('btnCreateRoom').onclick = () => {
   const name = $('nameInput').value.trim();
-  socket.emit('createRoom', { name }, (res) => {
+  socket.emit('createRoom', { name, icon: getSelectedIcon() }, (res) => {
     if (!res.ok) return ($('titleError').textContent = res.error || '作成に失敗しました');
     myId = res.playerId;
     showScreen('lobby');
@@ -130,7 +166,16 @@ $('btnCreateRoom').onclick = () => {
 $('btnAiBattle').onclick = () => openOverlay('aiOverlay');
 $('btnCloseAi').onclick = () => closeOverlay('aiOverlay');
 $('aiDifficulty').oninput = (e) => { $('aiDifficultyLabel').textContent = e.target.value; };
-$('btnStartAi').onclick = () => alert('AI対戦は現在準備中です。まずは友達とルームで対戦してみてください。');
+$('btnStartAi').onclick = () => {
+  const name = $('nameInput').value.trim();
+  const playerCount = parseInt($('aiPlayerCount').value, 10) || 2;
+  const difficulty = parseInt($('aiDifficulty').value, 10) || 5;
+  socket.emit('startAiBattle', { name, playerCount, difficulty, icon: getSelectedIcon() }, (res) => {
+    if (!res.ok) return ($('titleError').textContent = res.error || 'AI対戦の開始に失敗しました');
+    myId = res.playerId;
+    closeOverlay('aiOverlay');
+  });
+};
 
 $('btnJoinRoom').onclick = () => {
   buildKeypad();
@@ -162,7 +207,7 @@ function buildKeypad() {
 $('btnDoJoin').onclick = () => {
   const name = $('nameInput').value.trim();
   const roomId = $('roomIdInput').value.trim();
-  socket.emit('joinRoom', { name, roomId }, (res) => {
+  socket.emit('joinRoom', { name, roomId, icon: getSelectedIcon() }, (res) => {
     if (!res.ok) return ($('titleError').textContent = res.error || '参加に失敗しました');
     myId = res.playerId;
     closeOverlay('joinOverlay');
@@ -847,7 +892,7 @@ function renderLobby(state) {
   list.innerHTML = '';
   for (const p of state.players) {
     const li = document.createElement('li');
-    li.textContent = p.name;
+    li.innerHTML = `<img class="playerIcon" src="${iconPath(p.icon)}" alt="" style="margin-right:0.5em;" />${p.name}`;
     if (p.id === state.hostId) li.classList.add('host');
     if (isHost && p.id !== myId) {
       li.classList.add('clickablePlayer');
@@ -913,7 +958,7 @@ function renderGame(state) {
     box.className = 'oppBox' + (p.alive ? '' : ' dead') + (p.id === state.currentPlayerId ? ' currentTurn' : '');
     box.innerHTML = `
       <div class="oppLifeManaTag"><span class="lifeTag">♡${p.life == null ? '?' : p.life}</span> <span class="manaTag">★${p.mana == null ? '?' : p.mana}</span></div>
-      <div class="oppAvatar">${p.shielded ? '🛡' : '🙂'}</div>
+      <div class="oppAvatar"><img class="playerIcon" src="${iconPath(p.icon)}" alt="" />${p.shielded ? '<span class="shieldBadge">🛡</span>' : ''}</div>
       <div class="oppName">${p.name}</div>
       <div class="oppHandCount">手札:${p.handCount == null ? '?' : p.handCount}枚</div>
       <div class="oppFieldMini">場:${p.field.length}枚</div>
@@ -926,6 +971,7 @@ function renderGame(state) {
 
   if (me) {
     $('selfName').textContent = me.name;
+    $('selfIcon').src = iconPath(me.icon);
     $('selfLife').textContent = me.life;
     $('selfMana').textContent = me.mana;
     $('selfInfo').onclick = () => openFieldZoom(me);
