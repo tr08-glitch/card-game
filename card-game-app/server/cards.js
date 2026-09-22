@@ -13,7 +13,7 @@ const ALPHA_CARDS = {
   magicSword: { name: '魔剣', damageBonus: 3, recoilPerUse: 1 },
   wings: { name: '翼', extraHand: 1, costPenalty: 1 },
   muscle: { name: '筋肉', lifeBonus: 7, damageBonus: 2, damageReduction: 2, extraHand: -1 },
-  berserk: { name: '狂化', lifeBonus: 13, damageBonus: 2, endTurnSelfDamage: 1 },
+  berserk: { name: '狂化', lifeBonus: 15, damageBonus: 2, endTurnSelfDamage: 1 },
   corruption: { name: '堕落', damagePerTwoBlackUsed: 1, blackUseLifeGain: 2, otherUseLifeLoss: 1 },
   apostle: { name: '使徒', lifeBonus: 3, exclusiveCard: 'divinePunishment', blackUseLifeLoss: 4 },
   curse: { name: '呪詛', lifeBonus: 3, endTurnRandomEnemyDamage: 2, damageTakenBonus: 1 },
@@ -105,6 +105,7 @@ const CARD_DEFS = {
   13: { name: '混沌', baseCost: null, isBlack: true,  isSecret: false, defaultCount: 1 }, // コストは全マナ
   0.1: { no: 0, name: '破滅', baseCost: 0, isBlack: true,  isSecret: true, defaultCount: 1, secretKey: 'destruction' },
   0.2: { no: 0, name: '豪運', baseCost: 0, isBlack: false, isSecret: true, defaultCount: 1, secretKey: 'luck' },
+  0.3: { no: 0, name: '怪盗', baseCost: null, isBlack: null, isSecret: true, defaultCount: 1, secretKey: 'thief' }, // No.1〜12の好きなカードとして使用できる
 };
 
 const MANA_CAP_DISPLAY = 15; // これ以上は自動回復しない(保持は可能)
@@ -123,7 +124,8 @@ function shuffle(arr) {
 
 let instanceCounter = 1;
 function makeInstance(no, secretKey) {
-  const def = secretKey ? CARD_DEFS[secretKey === 'destruction' ? 0.1 : 0.2] : CARD_DEFS[no];
+  const secretDefKey = { destruction: 0.1, luck: 0.2, thief: 0.3 }[secretKey];
+  const def = secretKey ? CARD_DEFS[secretDefKey] : CARD_DEFS[no];
   return {
     instanceId: 'c' + (instanceCounter++),
     no: secretKey ? 0 : no,
@@ -144,6 +146,7 @@ function buildDeck(cardCounts) {
   }
   if (cardCounts.destruction !== 0) deck.push(makeInstance(0, 'destruction'));
   if (cardCounts.luck !== 0) deck.push(makeInstance(0, 'luck'));
+  if (cardCounts.thief !== 0) deck.push(makeInstance(0, 'thief'));
   return shuffle(deck);
 }
 
@@ -430,10 +433,13 @@ function resolveEffect(room, actingId, card, opts = {}) {
         const [drawn] = room.deck.splice(blackIdx, 1);
         log.push(`${actor.name} は深淵から黒いカード「${drawn.name}」を引いた`);
         actor.field.push({ instanceId: drawn.instanceId, no: drawn.no, name: drawn.name, faceUp: true, misfired: false });
-        room.blackCardUsage[actingId] = (room.blackCardUsage[actingId] || 0) + 1; // 深淵で使った黒いカードも使用済みとしてカウントする
-        const subOpts = { targetId: opts.subTargets ? opts.subTargets[i] : opts.targetId, chosenCost: drawn.baseCost || 3, __nested: true };
+        const targetForThis = opts.subTargets ? opts.subTargets[i] : opts.targetId;
+        const willReflect = targetForThis && room.players[targetForThis] && room.players[targetForThis].reflectUntilTurnStart && targetForThis !== actingId;
+        const usageCreditId = willReflect ? targetForThis : actingId; // 跳ね返った場合は相手が使用したものとしてカウントする
+        const subOpts = { targetId: targetForThis, chosenCost: drawn.baseCost || 3, __nested: true };
         const sub = resolveEffect(room, actingId, drawn, subOpts);
         log.push(...sub.log);
+        room.blackCardUsage[usageCreditId] = (room.blackCardUsage[usageCreditId] || 0) + 1; // このカード自身の効果計算より後にカウントする(堕落の自己参照的なダメージ増加を防ぐ)
       }
       break;
     }

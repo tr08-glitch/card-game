@@ -71,6 +71,8 @@ function createRoom(hostSocketId, hostName, hostIcon) {
       alphaCardVisibility: true, // アルファモード時のみ意味を持つ
     },
     cardCounts: {}, // 空なら cards.js のデフォルトを使う
+    secretCardCount: SECRET_CARD_TYPES.length, // デフォルトは全種類使用
+    secretCardEnabled: SECRET_CARD_TYPES.slice(),
     blackCardUsage: {}, // playerId -> 累計使用黒いカード枚数
     chatLog: [],
     started: false,
@@ -87,6 +89,7 @@ function createRoom(hostSocketId, hostName, hostIcon) {
   return room;
 }
 
+const SECRET_CARD_TYPES = ['destruction', 'luck', 'thief'];
 const PLAYER_ICONS = [
   'icon_star', 'icon_moon', 'icon_flame', 'icon_leaf', 'icon_skull', 'icon_crystal', 'icon_eye', 'icon_wolf', 'icon_crown', 'icon_wave',
   'icon_sword', 'icon_shield', 'icon_potion', 'icon_book', 'icon_ring', 'icon_feather', 'icon_thunder', 'icon_snow', 'icon_rose', 'icon_mask',
@@ -205,6 +208,15 @@ function startAlphaSelection(room, io) {
 }
 
 function reallyStartGame(room, io) {
+  if (room.secretCardCount != null) {
+    // シークレットカードの枚数(種類数)設定: 有効な種類の中からランダムにN種類を選び、それ以外は0枚にする
+    const pool = (room.secretCardEnabled && room.secretCardEnabled.length > 0) ? room.secretCardEnabled : SECRET_CARD_TYPES;
+    const n = Math.max(0, Math.min(pool.length, room.secretCardCount));
+    const chosen = new Set(shuffle(pool.slice()).slice(0, n));
+    for (const key of SECRET_CARD_TYPES) {
+      room.cardCounts[key] = chosen.has(key) ? 1 : 0;
+    }
+  }
   room.deck = buildDeck(room.cardCounts);
   for (const id of room.order) {
     const p = room.players[id];
@@ -267,6 +279,8 @@ function buildStateFor(room, viewerId) {
     order: room.order,
     settings: room.settings,
     cardCounts: room.cardCounts,
+    secretCardCount: room.secretCardCount,
+    secretCardEnabled: room.secretCardEnabled,
     players: room.order.map((id) => publicPlayerView(room, room.players[id], viewerId)),
     you: viewerId,
   };
@@ -408,7 +422,12 @@ function advanceTurn(room, io) {
       if (berserkDmg > 0 && finishing.alive) {
         const selfLog = [];
         dealDamage(room, finishingId, berserkDmg, selfLog, finishingId, false, true); // 狂化: 毎ターン終了時に固定ダメージ(補正なし)
-        pushLog(room, selfLog);
+        if (room.settings && room.settings.alphaCardVisibility === false) {
+          // 可視化オフの時はダメージ量を隠すが、力尽きた場合の結果だけは表示する
+          pushLog(room, selfLog.filter((line) => line.includes('力尽き') || line.includes('アルファカード')));
+        } else {
+          pushLog(room, selfLog);
+        }
       }
       const curseDmg = alphaSum(finishing, 'endTurnRandomEnemyDamage');
       if (curseDmg > 0) {
@@ -516,6 +535,25 @@ function performPlayCard(room, playerId, payload, io) {
   if (idx === -1) return;
   const [card] = actor.hand.splice(idx, 1);
   const randomNotice = randomizedThisTurn ? [`${actor.name} は魘の影響で行動がランダムになった`] : [];
+
+  if (card.secretKey === 'thief' && faceUp) {
+    // 怪盗: 表向きで使う場合、No.1〜12の好きなカードとして扱う(賭博として使う場合のコストは4固定)
+    const mimicAs = parseInt(payload.mimicAs, 10);
+    if (mimicAs >= 1 && mimicAs <= 12 && CARD_DEFS[mimicAs]) {
+      const mimicDef = CARD_DEFS[mimicAs];
+      card.no = mimicAs;
+      card.name = `怪盗(${mimicDef.name})`;
+      card.baseCost = mimicDef.baseCost;
+      card.isBlack = mimicDef.isBlack;
+      card.secretKey = null; // なりすまし先の通常カードとして解決させる(このフラグが残っているとresolveEffect側で怪盗自体の処理に飛んでしまう)
+      if (mimicAs === 7) chosenCost = 4;
+    } else {
+      actor.field.push({ instanceId: card.instanceId, no: 0, name: card.name, faceUp: true, misfired: true });
+      pushLog(room, [...randomNotice, `${actor.name} は「${card.name}」を表向きで出したが、何のカードとして使うか選ばれておらず不発だった`]);
+      advanceTurn(room, io);
+      return;
+    }
+  }
 
   if (!faceUp) {
     // 裏向き
@@ -842,7 +880,12 @@ io.on('connection', (socket) => {
   socket.on('setCardCounts', (counts) => {
     const room = rooms[socket.data.roomId];
     if (!room || room.hostId !== socket.id || room.started) return;
-    room.cardCounts = counts || {};
+    const { secretCardCount, secretCardEnabled, ...rest } = counts || {};
+    room.cardCounts = rest;
+    room.secretCardCount = secretCardCount != null ? secretCardCount : undefined;
+    room.secretCardEnabled = Array.isArray(secretCardEnabled) && secretCardEnabled.length > 0
+      ? secretCardEnabled.filter((k) => SECRET_CARD_TYPES.includes(k))
+      : SECRET_CARD_TYPES.slice();
   });
 
   socket.on('setGameSettings', (settings) => {
