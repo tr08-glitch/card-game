@@ -23,7 +23,12 @@ const {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000, // 2分以内の瞬断ならソケットの状態を復元する
+    skipMiddlewares: true,
+  },
+});
 
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -727,7 +732,15 @@ function scheduleAiTrialVote(room, aiId, io) {
   }, 500 + Math.floor(Math.random() * 500));
 }
 
+const pendingDisconnectTimers = {}; // socket.id -> setTimeoutのハンドル(瞬断からの復帰待ち)
+const DISCONNECT_GRACE_MS = 12000; // この時間内に再接続してくれば退室扱いにしない
+
 io.on('connection', (socket) => {
+  if (socket.recovered && pendingDisconnectTimers[socket.id]) {
+    // 瞬断から同じソケットIDで復帰できた場合は、保留中の退室処理をキャンセルする
+    clearTimeout(pendingDisconnectTimers[socket.id]);
+    delete pendingDisconnectTimers[socket.id];
+  }
   socket.on('createRoom', ({ name, icon }, cb) => {
     const room = createRoom(socket.id, name, icon);
     socket.join(room.roomId);
@@ -990,11 +1003,22 @@ io.on('connection', (socket) => {
   });
 
   socket.on('leaveRoom', () => {
+    if (pendingDisconnectTimers[socket.id]) {
+      clearTimeout(pendingDisconnectTimers[socket.id]);
+      delete pendingDisconnectTimers[socket.id];
+    }
     handleLeave(socket);
   });
 
   socket.on('disconnect', () => {
-    handleLeave(socket);
+    // 通信が一瞬だけ途切れただけ(スマホの回線切り替え、タブの一時的なバックグラウンド化など)で
+    // 自動的に再接続してくる場合があるため、即座に退室扱いにせず少し待つ。
+    // その間に同じソケットが復帰(socket.recovered)すれば、退室処理はキャンセルされる。
+    const socketId = socket.id;
+    pendingDisconnectTimers[socketId] = setTimeout(() => {
+      delete pendingDisconnectTimers[socketId];
+      handleLeave(socket);
+    }, DISCONNECT_GRACE_MS);
   });
 
   function handleLeave(socket) {
