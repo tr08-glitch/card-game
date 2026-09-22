@@ -69,9 +69,11 @@ const CARD_INFO = {
   0: { name: 'シークレット', cost: '0', black: null, effect: '破滅または豪運のいずれかが発動する。' },
 };
 
+const SECRET_CARD_TYPES = ['destruction', 'luck', 'thief'];
 const SECRET_INFO = {
   destruction: { name: '破滅', cost: '0', black: true, effect: '全プレイヤーのHPを1、マナを0にする。' },
   luck: { name: '豪運', cost: '0', black: false, effect: 'HP+5、マナ+3。山札から好きなカードを1枚選び手札1枚と交換。さらに次の自分のターン開始まで防御状態になる(他プレイヤーの能力を受けない)。' },
+  thief: { name: '怪盗', cost: '?', black: false, effect: '表向きで使う時、No.1〜12の好きなカードとして扱える(そのカードのコスト・効果をそのまま使う)。賭博として使う場合のコストは4固定。' },
 };
 
 // アルファモード専用のカード
@@ -82,7 +84,7 @@ const ALPHA_CARD_INFO = {
   magicSword: { name: '魔剣', cost: '-', effect: '与えるダメージ+3。プレイヤーにダメージを与えると反動で自分が1ダメージを受ける(1回のカード使用につき反動は1回のみ)。' },
   wings: { name: '翼', cost: '-', effect: '手札の上限が1枚増える(ゲーム開始時から常に3枚。輪廻などで引き直した後も3枚になる)。その代わり、すべてのカードの最終コストが+1になる。' },
   muscle: { name: '筋肉', cost: '-', effect: '与えるダメージ+2、受けるダメージ-2、初期ライフ+7。その代わり手札の上限が1枚減る(常に1枚)。' },
-  berserk: { name: '狂化', cost: '-', effect: '初期ライフ+13、与えるダメージ+2。その代わり、自分のターン終了時に固定1ダメージを受ける(補正を受けない)。' },
+  berserk: { name: '狂化', cost: '-', effect: '初期ライフ+15、与えるダメージ+2。その代わり、自分のターン終了時に固定1ダメージを受ける(補正を受けない)。' },
   corruption: { name: '堕落', cost: '-', effect: '使った黒いカード2枚につき与ダメージ+1。黒いカードを使うとライフ+2(この回復は初期ライフを超えられる)。裏向きに置いた時、または黒いカード以外を使った時はライフ-1。' },
   apostle: { name: '使徒', cost: '-', effect: '初期ライフ+3。専用カード「神罰」が使えるようになる。黒いカードを使うとライフ-4。' },
   curse: { name: '呪詛', cost: '-', effect: '初期ライフ+3。自分のターンの終わりに、ランダムな敵1人へ固定2ダメージ、さらに別のランダムな敵1人へ固定1ダメージ(どちらも補正を受けない)。その代わり受けるダメージ+1。' },
@@ -253,7 +255,7 @@ function buildCardListOverlay() {
     const info = CARD_INFO[no];
     body.appendChild(makeCardListRow(`images/${no}.png`, `No.${no} ${info.name}`, info.cost, info.black, info.effect));
   }
-  for (const key of ['destruction', 'luck']) {
+  for (const key of ['destruction', 'luck', 'thief']) {
     const info = SECRET_INFO[key];
     body.appendChild(makeCardListRow(`images/${key}.png`, `シークレット ${info.name}`, info.cost, info.black, info.effect));
   }
@@ -334,18 +336,66 @@ function makeCardListRow(imgPath, title, cost, black, effect) {
   return row;
 }
 
+function buildSecretCardToggleList(overrideEnabled) {
+  const list = $('secretCardToggleList');
+  list.innerHTML = '';
+  const enabled = overrideEnabled || (latestState && latestState.secretCardEnabled) || SECRET_CARD_TYPES.slice();
+  const syncCountMax = () => {
+    const enabledCount = document.querySelectorAll('#secretCardToggleList input[type="checkbox"]:checked').length;
+    const max = Math.max(1, enabledCount);
+    $('secretCardCountNum').max = String(max);
+    if (parseInt($('secretCardCountNum').value, 10) > max) $('secretCardCountNum').value = String(max);
+  };
+  for (const key of SECRET_CARD_TYPES) {
+    const info = SECRET_INFO[key];
+    const row = document.createElement('div');
+    row.className = 'cardListRow secretToggleCardRow';
+    const thumb = document.createElement('div');
+    thumb.className = 'cardListThumb';
+    thumb.style.backgroundImage = `url('images/${key}.png')`;
+    const infoDiv = document.createElement('div');
+    infoDiv.className = 'cardListInfo';
+    infoDiv.innerHTML = `<span class="cardListName${info.black ? ' black' : ''}">${info.name}</span><span class="cardListCost">コスト:${info.cost}</span><div class="cardListEffect">${info.effect}</div>`;
+    const toggle = document.createElement('input');
+    toggle.type = 'checkbox';
+    toggle.className = 'secretToggleCheckbox';
+    toggle.checked = enabled.includes(key);
+    toggle.dataset.secretKey = key;
+    toggle.onchange = syncCountMax;
+    row.appendChild(toggle);
+    row.appendChild(thumb);
+    row.appendChild(infoDiv);
+    list.appendChild(row);
+  }
+  syncCountMax();
+}
+
 $('btnCardCount').onclick = () => { buildCardCountList('current'); setCardCountEditable(true); openOverlay('cardCountOverlay'); };
 $('btnCardCountView').onclick = () => { buildCardCountList('current'); setCardCountEditable(false); openOverlay('cardCountOverlay'); };
 $('btnCardCountCancel').onclick = () => closeOverlay('cardCountOverlay');
 $('btnCardCountClose').onclick = () => closeOverlay('cardCountOverlay');
 $('btnCardCountDefault').onclick = () => buildCardCountList('default');
+$('chkSecretCards').onchange = () => {
+  $('secretCardCountNum').disabled = !$('chkSecretCards').checked;
+  document.querySelectorAll('#secretCardToggleList input[type="checkbox"]').forEach((inp) => {
+    inp.disabled = !$('chkSecretCards').checked;
+  });
+};
 $('btnCardCountConfirm').onclick = () => {
   const counts = {};
   document.querySelectorAll('.cardCountRow input[type="number"]').forEach((inp) => {
     counts[inp.dataset.no] = parseInt(inp.value, 10) || 0;
   });
-  counts.destruction = $('chkSecretCards').checked ? 1 : 0;
-  counts.luck = $('chkSecretCards').checked ? 1 : 0;
+  const totalSecretTypes = 3; // 破滅・豪運・怪盗
+  const secretCardEnabled = [];
+  document.querySelectorAll('#secretCardToggleList input[type="checkbox"]').forEach((inp) => {
+    if (inp.checked) secretCardEnabled.push(inp.dataset.secretKey);
+  });
+  counts.secretCardEnabled = secretCardEnabled;
+  const maxSelectable = Math.max(1, secretCardEnabled.length || totalSecretTypes);
+  counts.secretCardCount = $('chkSecretCards').checked
+    ? Math.max(1, Math.min(maxSelectable, parseInt($('secretCardCountNum').value, 10) || maxSelectable))
+    : 0;
   socket.emit('setCardCounts', counts);
   closeOverlay('cardCountOverlay');
 };
@@ -353,6 +403,10 @@ $('btnCardCountConfirm').onclick = () => {
 function setCardCountEditable(editable) {
   document.querySelectorAll('#cardCountList input[type="number"]').forEach((inp) => { inp.disabled = !editable; });
   $('chkSecretCards').disabled = !editable;
+  $('secretCardCountNum').disabled = !editable || !$('chkSecretCards').checked;
+  document.querySelectorAll('#secretCardToggleList input[type="checkbox"]').forEach((inp) => {
+    inp.disabled = !editable || !$('chkSecretCards').checked;
+  });
   $('btnCardCountCancel').classList.toggle('hidden', !editable);
   $('btnCardCountDefault').classList.toggle('hidden', !editable);
   $('btnCardCountConfirm').classList.toggle('hidden', !editable);
@@ -371,8 +425,14 @@ function buildCardCountList(mode) {
     row.innerHTML = `<span>No.${no} ${cardLabel(no)}</span><input type="number" min="0" max="10" value="${val}" data-no="${no}" />`;
     list.appendChild(row);
   }
-  const secretsOff = current.destruction === 0 && current.luck === 0;
+  const totalSecretTypes = 3; // 破滅・豪運・怪盗
+  const secretsOff = mode !== 'default' && latestState && latestState.secretCardCount === 0;
   $('chkSecretCards').checked = mode === 'default' ? true : !secretsOff;
+  const secretCountVal = mode === 'default'
+    ? totalSecretTypes
+    : (latestState && latestState.secretCardCount != null && latestState.secretCardCount > 0 ? latestState.secretCardCount : totalSecretTypes);
+  $('secretCardCountNum').value = secretCountVal;
+  buildSecretCardToggleList(mode === 'default' ? SECRET_CARD_TYPES.slice() : null);
 }
 
 $('btnGameSettings').onclick = () => { populateGameSettingsFields(); setGameSettingsEditable(true); syncTurnLimitFieldState(); syncAlphaVisibilityRow(); openOverlay('gameSettingsOverlay'); };
@@ -489,7 +549,7 @@ function cardImagePath(card) {
 
 function makeCardEl(card, opts = {}) {
   const div = document.createElement('div');
-  const info = CARD_INFO[card.no] || {};
+  const info = (card.secretKey ? SECRET_INFO[card.secretKey] : CARD_INFO[card.no]) || {};
   div.className = 'card' + (info.black ? ' black' : '') + (card.faceUp === false ? ' down' : '') + (card.misfired ? ' misfired' : '');
   if (opts.extraClass) div.classList.add(opts.extraClass);
   if (card.faceUp === false && !opts.forceShow) {
@@ -528,12 +588,30 @@ function renderPopupHandStrip(handList) {
 }
 
 function renderPopupCard(card, handList) {
-  const info = CARD_INFO[card.no] || {};
-  $('popupCardName').textContent = `No.${card.no} ${info.name || card.name}`;
+  const info = (card.secretKey ? SECRET_INFO[card.secretKey] : CARD_INFO[card.no]) || {};
+  $('popupCardName').textContent = card.secretKey ? info.name || card.name : `No.${card.no} ${info.name || card.name}`;
   $('popupCardCost').textContent = info.cost || '-';
   $('popupCardEffect').textContent = info.effect || '';
   // コストをプレイヤーが選べるのはNo.7のみ(No.13混沌は常に全マナを消費するため選択不要)
   $('popupCost').classList.toggle('hidden', card.no !== 7);
+
+  // 怪盗: 表向きで使う時は、No.1〜12のどのカードとして使うかを選ぶ
+  const mimicSel = $('popupMimicAs');
+  if (card.secretKey === 'thief') {
+    mimicSel.classList.remove('hidden');
+    if (!mimicSel.dataset.filled) {
+      mimicSel.innerHTML = '';
+      for (let n = 1; n <= 12; n++) {
+        const opt = document.createElement('option');
+        opt.value = String(n);
+        opt.textContent = `No.${n} ${CARD_INFO[n] ? CARD_INFO[n].name : ''}`;
+        mimicSel.appendChild(opt);
+      }
+      mimicSel.dataset.filled = '1';
+    }
+  } else {
+    mimicSel.classList.add('hidden');
+  }
 
   const img = $('popupCardIllustImg');
   const fallback = $('popupCardIllustFallback');
@@ -579,25 +657,28 @@ $('btnPlayFaceUp').onclick = () => {
   if (!selectedCard) return;
   const targetId = $('popupTarget').value || undefined;
   const chosenCost = parseInt($('popupCost').value, 10) || undefined;
+  const isThief = selectedCard.secretKey === 'thief';
+  const mimicAs = isThief ? parseInt($('popupMimicAs').value, 10) : undefined;
+  const effectiveNo = isThief ? mimicAs : selectedCard.no;
 
-  if (selectedCard.no === 6) {
+  if (effectiveNo === 6) {
     if (!targetId) { alert('対象のプレイヤーを選んでください'); return; }
     const me = latestState && latestState.players.find((p) => p.id === myId);
     const targetPlayer = latestState && latestState.players.find((p) => p.id === targetId);
     if ((me && me.mana < 3) || (targetPlayer && targetPlayer.shielded)) {
       // マナ不足、または相手が防御中(豪運の防御も含む)の場合は、相手の手札を見ずに通常のカードと同じ扱いで処理する
       // (正確な判定はサーバー側でも行われる)
-      socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId });
+      socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId, mimicAs });
       closeOverlay('cardPopup');
       selectedCard = null;
       return;
     }
-    startTradeFlow(selectedCard, targetId);
+    startTradeFlow(selectedCard, targetId, mimicAs);
     closeOverlay('cardPopup');
     return;
   }
 
-  socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId, chosenCost });
+  socket.emit('playCard', { instanceId: selectedCard.instanceId, faceUp: true, targetId, chosenCost, mimicAs });
   closeOverlay('cardPopup');
   selectedCard = null;
 };
@@ -605,8 +686,8 @@ $('btnPlayFaceUp').onclick = () => {
 // ========== 取引(No.6): 相手の手札を見て1枚ずつ交換 ==========
 let tradeState = null; // { mode: 'normal'|'reflected', card?, targetId?, actorId?, chosenGiveId, chosenTakeId }
 
-function startTradeFlow(card, targetId) {
-  tradeState = { mode: 'normal', card, targetId, chosenGiveId: null, chosenTakeId: null };
+function startTradeFlow(card, targetId, mimicAs) {
+  tradeState = { mode: 'normal', card, targetId, mimicAs, chosenGiveId: null, chosenTakeId: null };
   socket.emit('peekHand', { targetId });
 }
 
@@ -668,6 +749,7 @@ $('btnTradeConfirm').onclick = () => {
       targetId: tradeState.targetId,
       tradeGiveInstanceId: tradeState.chosenGiveId,
       tradeTakeInstanceId: tradeState.chosenTakeId,
+      mimicAs: tradeState.mimicAs,
     });
   }
   tradeState = null;
