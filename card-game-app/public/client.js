@@ -7,20 +7,25 @@ let selectedCard = null;
 const $ = (id) => document.getElementById(id);
 
 // ==== カード情報(表示用。効果ロジックはサーバー側 cards.js が正) ====
+// 「クラシックカード」= 通常のNo.1〜13+シークレットの、クラシック/アルファ両モード共通の基本カード群
 const CARD_INFO = {
-  1: { name: '探索', cost: '1', black: false, effect: '山札からカードを1枚引き、自身の手札を1枚山札に戻す。' },
-  2: { name: '治療', cost: '1', black: false, effect: '自身のライフを+3する(初期ライフを超えない)。' },
-  3: { name: '強奪', cost: '2', black: true, effect: '相手を1人選び、マナを3盗む。' },
-  4: { name: '攻撃', cost: '2', black: true, effect: '相手に3ダメージ、自身に1ダメージ。' },
-  5: { name: '防御', cost: '2', black: false, effect: '次の自分のターンまで、他プレイヤーの能力を受けない。' },
-  6: { name: '取引', cost: '3', black: false, effect: '相手プレイヤー1人の手札を見て、相手のカード1枚と自分のカード1枚を選んで交換する。' },
-  7: { name: '賭博', cost: '1〜7(選択)', black: true, effect: '相手とルーレット対決。差分に応じてダメージ、差分の半分のマナを授受(相手の保有分が上限)。' },
-  8: { name: '戦争', cost: '4', black: true, effect: '相手と手札No.合計を比較。負けた方が差分ダメージ。' },
-  9: { name: '輪廻', cost: '5', black: false, effect: 'ライフ・マナをリセットし、手札を全て入れ替える。' },
-  10: { name: '反逆', cost: '3', black: false, effect: '次の自分のターンまで、受けた能力を反射する。' },
-  11: { name: '深淵', cost: '6', black: false, effect: '黒いカードを2枚引き、即座に効果を発動する。' },
-  12: { name: '浄化', cost: '使用済黒カード数×1.5', black: false, effect: '黒いカードの使用・保持数に応じて全体にダメージ・マナ減少。' },
-  13: { name: '混沌', cost: '全マナ', black: true, effect: 'マナ量に応じた規模のランダムな全体効果が発動する。' },
+  1: { name: '探索', cost: '1', black: false, effect: '山札から1枚引く。引いた後、山札に戻すカードを1枚選ぶ(戻す前はターンが終わらない)。' },
+  2: { name: '治療', cost: '1', black: false, effect: '自身のライフ+3(初期ライフを超えない。既に初期ライフを超えている場合は減らない)。' },
+  3: { name: '強奪', cost: '2', black: true, effect: '相手を1人選び、マナを3(相手の保有分が上限)奪う。相手が防御中なら効果なし。相手が反逆状態なら逆に自分がマナを奪われる。' },
+  4: { name: '攻撃', cost: '2', black: true, effect: '相手に3ダメージ、自身に1ダメージ。相手が防御中なら無効、反逆状態ならダメージが自分に跳ね返る。' },
+  5: { name: '防御', cost: '2', black: false, effect: '次の自分のターンまで、他プレイヤーからのダメージ・マナ減少などの効果を一切受けない(自分から見えるだけでなく、相手にも防御中と表示される)。' },
+  6: { name: '取引', cost: '3', black: false, effect: '相手プレイヤー1人の手札を見て、相手のカード1枚と自分のカード1枚を選んで交換する。一度相手の手札を見たら、交換を完了するまでキャンセルはできない。' },
+  7: { name: '賭博', cost: '1〜7(自分で選択)', black: true,
+    effect: '相手を1人選んでルーレット対決。自分の出目は1〜10のランダム値+2(使用者特典)、相手の出目は1〜10のランダム値そのまま(どちらも合計10が上限)。出目の差の分だけ、負けた方が「差×コスト÷6(切り上げ)」ダメージを受け、さらに差の半分(切り上げ、かつ相手の保有マナが上限)のマナが勝者に移動する。出目が同じ場合は両者がコスト分のダメージを受け、マナのやり取りはなし。' },
+  8: { name: '戦争', cost: '4', black: true, effect: '相手と手札のNo.合計を比較。負けた方が差分のダメージを受ける(シークレットカードはNo.0として扱う)。' },
+  9: { name: '輪廻', cost: '5', black: false, effect: 'ライフを初期ライフに戻し(回復ではなくリセット)、マナを3にし、手札を全て山札に戻して同じ枚数だけ新しく引き直す。' },
+  10: { name: '反逆', cost: '0(ただしマナ3未満だと不発)', black: false,
+    effect: '場では本物の裏向きカードと全く同じ見た目・扱いになり、他プレイヤーにもログにも正体は分からない(不発時のみ通常カードと同様に公開される)。ライフ+1(初期ライフを超えてもよい、裏向きに出した状況に近づけるため)。次の自分のターンが来るまでの間、他プレイヤーから攻撃・強奪などの効果を受けると、その効果はそのまま相手へ跳ね返る(反射)。次の自分のターン開始時に自動で正体が公開され、マナを3消費する。' },
+  11: { name: '深淵', cost: '6', black: true, effect: '山札の黒いカードを2枚引き、それぞれ即座に効果を発動する(黒いカードを引けなければその分は不発)。引いたカードも使用済みの黒いカードとして扱われる。' },
+  12: { name: '浄化', cost: '自分が使用済みの黒いカード枚数×1.5(切り上げ)', black: false,
+    effect: '全プレイヤーに対して、各自が「これまでに使用した黒いカードの枚数×2」分のダメージを与え、さらに各自の「現在手札にある黒いカードの枚数×2」分のマナを減少させる。使えば使うほど自分自身も巻き込まれる、自業自得型の全体カード。' },
+  13: { name: '混沌', cost: '全マナ', black: true,
+    effect: '消費したマナ量に応じて規模(小・中・大)が決まり、その規模の中からランダムに1つの全体効果が発動する。ごく低確率(2%)で規模を問わず「魘(えん)」が発動し、全員の行動が3ターンの間ランダムになる。全体攻撃系の効果は使用者へのダメージが1軽減される。効果の詳細は下の表を参照。' },
   0: { name: 'シークレット', cost: '0', black: null, effect: '破滅または豪運のいずれかが発動する。' },
 };
 
@@ -41,7 +46,7 @@ const ALPHA_CARD_INFO = {
   corruption: { name: '堕落', cost: '-', effect: '使った黒いカード2枚につき与ダメージ+1。黒いカードを使うとライフ+2(この回復は初期ライフを超えられる)。裏向きに置いた時、または黒いカード以外を使った時はライフ-1。' },
   apostle: { name: '使徒', cost: '-', effect: '初期ライフ+3。専用カード「神罰」が使えるようになる。黒いカードを使うとライフ-4。' },
   curse: { name: '呪詛', cost: '-', effect: '初期ライフ+3。自分のターンの終わりに、ランダムな敵1人へ固定2ダメージ、さらに別のランダムな敵1人へ固定1ダメージ(どちらも補正を受けない)。その代わり受けるダメージ+1。' },
-  gambler: { name: '賭酔', cost: '-', effect: '自分のターンの初めに自動で「博打」の効果が発動する(全員でルーレットを回し、自分の出目-全員の平均値の分だけマナが増減する)。ルーレットを使うカード全般で自分の出目+1。その代わりマナが自然回復しなくなる。' },
+  gambler: { name: '賭酔', cost: '-', effect: '自分のターンの初めに自動で「博打」の効果が発動する:全員でルーレットを回し(自分の出目には+2のボーナス)、各自「自分の出目-全員の平均値」分だけマナが増減する(合計は必ず0になる再分配。マナがマイナスになることもある)。加えて、ルーレットを使うカード全般(賭博など)で自分の出目に常に+1。その代わりマナが自然回復しなくなる。' },
 };
 
 const EXCLUSIVE_CARD_INFO = {
@@ -189,6 +194,10 @@ $('btnGameCardList').onclick = () => { buildCardListOverlay(); openOverlay('card
 function buildCardListOverlay() {
   const body = $('cardListBody');
   body.innerHTML = '';
+  const classicHeader = document.createElement('div');
+  classicHeader.className = 'cardListSectionHeader';
+  classicHeader.textContent = 'クラシックカード(クラシック・アルファ両モード共通)';
+  body.appendChild(classicHeader);
   for (let no = 1; no <= 13; no++) {
     const info = CARD_INFO[no];
     body.appendChild(makeCardListRow(`images/${no}.png`, `No.${no} ${info.name}`, info.cost, info.black, info.effect));
@@ -197,6 +206,7 @@ function buildCardListOverlay() {
     const info = SECRET_INFO[key];
     body.appendChild(makeCardListRow(`images/${key}.png`, `シークレット ${info.name}`, info.cost, info.black, info.effect));
   }
+  body.appendChild(buildChaosTable());
   const alphaKeys = Object.keys(ALPHA_CARD_INFO);
   if (alphaKeys.length > 0) {
     const header = document.createElement('div');
@@ -216,6 +226,47 @@ function buildCardListOverlay() {
       body.appendChild(makeCardListRow(`images/alpha_${key}.png`, info.name, info.cost, false, info.effect));
     }
   }
+}
+
+function buildChaosTable() {
+  const wrap = document.createElement('div');
+  wrap.className = 'chaosTableWrap';
+
+  const title = document.createElement('div');
+  title.className = 'cardListSectionHeader';
+  title.textContent = 'No.13 混沌:規模ごとの効果一覧';
+  wrap.appendChild(title);
+
+  const rows = [
+    ['規模', '発生条件(消費マナ)', '効果名', '内容'],
+    ['小規模', '1〜5', 'つむじ風', '全プレイヤーのマナ-2、ライフ-3(使用者のみ-2)'],
+    ['小規模', '1〜5', '落石', 'ランダムな対象に2ダメージ×4回'],
+    ['小規模', '1〜5', '混乱', '全プレイヤー間で手札が入れ替わる'],
+    ['小規模', '1〜5', '裁判(3人以上のみ)', '全員が1人に投票(使用者は2票)。最多得票者が7ダメージ(同数なら均等分割・切り上げ)'],
+    ['中規模', '6〜10', '竜巻', '全プレイヤーのマナ-3、ライフ-5(使用者のみ-4)、さらにランダムな1人に追加3ダメージ'],
+    ['中規模', '6〜10', '隕石', 'ランダムな対象に4ダメージ×4回'],
+    ['中規模', '6〜10', '命水', '全プレイヤーのライフ+5(上限なし、初期ライフを超えてよい)'],
+    ['中規模', '6〜10', '疫病', '1/3×人数×ルーレット(1〜10)のダメージを全体に(使用者は-1)'],
+    ['大規模', '11以上', 'テンペスト', '全員のライフが1〜3のランダムな値になる(減少方向のみ)'],
+    ['大規模', '11以上', 'スターレイン', 'ランダムな対象に1〜3ダメージ×10回'],
+    ['大規模', '11以上', 'アノマリー', '黒いカードが出現しやすくなる。全員の手札上限が1〜4枚のいずれかにランダムに決まり引き直し、7-(手札枚数)分ライフ回復'],
+    ['大規模', '11以上', 'ラグナロク', '各自に12-(自身の場の裏向きカード枚数)ダメージ'],
+    ['規模不問', '低確率(2%)', '魘(えん)', '全プレイヤーが3ターンの間、行動(表裏・カード・対象・コスト)が全てランダムになる'],
+  ];
+
+  const table = document.createElement('table');
+  table.className = 'chaosTable';
+  rows.forEach((cols, i) => {
+    const tr = document.createElement('tr');
+    for (const col of cols) {
+      const cell = document.createElement(i === 0 ? 'th' : 'td');
+      cell.textContent = col;
+      tr.appendChild(cell);
+    }
+    table.appendChild(tr);
+  });
+  wrap.appendChild(table);
+  return wrap;
 }
 
 function makeCardListRow(imgPath, title, cost, black, effect) {
@@ -388,7 +439,7 @@ function makeCardEl(card, opts = {}) {
     div.style.backgroundSize = 'cover';
     div.style.backgroundPosition = 'center';
     div.innerHTML = `
-      <div class="cardNo">No.${card.no}</div>
+      <div class="cardNo${info.black ? ' blackCardNo' : ''}">No.${card.no}</div>
       <div class="cardCost">${SHORT_COST[card.no] != null ? SHORT_COST[card.no] : ''}</div>
       <div class="cardNameSmall">${info.name || card.name}${card.misfired ? '(不発)' : ''}</div>
     `;
@@ -569,6 +620,57 @@ socket.on('rouletteResult', (data) => {
 
   setTimeout(() => {
     closeOverlay('rouletteOverlay');
+    rouletteAnimating = false;
+    if (pendingStateDuringRoulette) {
+      const s = pendingStateDuringRoulette;
+      pendingStateDuringRoulette = null;
+      applyState(s);
+    }
+  }, 3200);
+});
+
+// ========== 博打: 全員ルーレット演出 ==========
+socket.on('gambleRouletteResult', (data) => {
+  rouletteAnimating = true;
+  const wrap = $('gambleRouletteWheels');
+  wrap.innerHTML = '';
+  const numEls = {};
+  for (const p of data.players) {
+    const side = document.createElement('div');
+    side.className = 'rouletteSide';
+    side.innerHTML = `
+      <div class="rouletteName">${p.name}${p.id === data.actorId ? '(使用者)' : ''}</div>
+      <div class="rouletteNumber spinning" id="gambleNum_${p.id}">?</div>
+      <div class="rouletteDelta" id="gambleDelta_${p.id}"></div>
+    `;
+    wrap.appendChild(side);
+    numEls[p.id] = side.querySelector(`#gambleNum_${p.id}`);
+  }
+  openOverlay('gambleRouletteOverlay');
+
+  const spinInterval = setInterval(() => {
+    for (const p of data.players) {
+      numEls[p.id].textContent = String(1 + Math.floor(Math.random() * 10));
+    }
+  }, 80);
+
+  setTimeout(() => {
+    clearInterval(spinInterval);
+    for (const p of data.players) {
+      numEls[p.id].textContent = String(p.roll);
+      numEls[p.id].classList.remove('spinning');
+      numEls[p.id].classList.add('landed');
+      const deltaEl = document.getElementById(`gambleDelta_${p.id}`);
+      if (deltaEl) {
+        if (p.delta > 0) { deltaEl.textContent = `マナ +${p.delta}`; deltaEl.classList.add('plus'); }
+        else if (p.delta < 0) { deltaEl.textContent = `マナ ${p.delta}`; deltaEl.classList.add('minus'); }
+        else { deltaEl.textContent = 'マナ ±0'; }
+      }
+    }
+  }, 1200);
+
+  setTimeout(() => {
+    closeOverlay('gambleRouletteOverlay');
     rouletteAnimating = false;
     if (pendingStateDuringRoulette) {
       const s = pendingStateDuringRoulette;
@@ -955,17 +1057,20 @@ const RULE_TEXT = `【基本ルール】
 1. 山札から1枚引く
 2. 手札から1枚を選び、自分の場に表向き/裏向きで出す(強制)
    ・表向き: コストを払い能力を発動(マナ不足なら不発。カード内容は全員に公開)
-   ・裏向き: ライフ+1。内容は自分だけがわかる
+   ・裏向き: ライフ+1(初期ライフを超えてもよい)。内容は自分だけがわかる
 3. 次の人のターンへ
 
 【マナ】
-ターン開始時、現在マナ0〜5で+3、6〜10で+2、11〜14で+1、15以上は回復なし(保持は上限なし)。
+ターン開始時、現在マナ0〜5で+3、6〜10で+2、11〜14で+1、15以上は回復なし(保持は上限なし)。マナがマイナスの場合は特別に固定+4回復する。
 
 【黒いカード】
-No.3・4・7・8・13。攻撃的な効果が多い。
+No.3・4・7・8・11・13。攻撃的・ダーク系の効果が多い。場や手札では、黒いカードのNo.が赤い文字で表示されるので一目で見分けられる。
 
 【シークレットカード】
 No.は0として扱う。「破滅」「豪運」の2種、各1枚のみ封入。
+
+【複雑なカードについて】
+反逆・賭博・浄化・混沌など、仕組みが込み入っているカードについては、タイトル画面や対戦画面の「カード一覧」に詳しい説明があります。迷ったらそちらを確認してください。
 
 【アルファモード】
 ゲーム設定の「モード」で「アルファ」を選ぶと、通常のカード(クラシック)に加えて「アルファカード」を使った対戦になる。

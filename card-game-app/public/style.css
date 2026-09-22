@@ -226,6 +226,7 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 }
 .card.misfired { opacity: 0.55; }
 .card .cardNo { position: absolute; top: 3px; left: 5px; font-size: 0.85em; color: var(--accent-gold); }
+.card .cardNo.blackCardNo { color: #ff4d4d; font-weight: bold; }
 .card .cardCost { position: absolute; top: 3px; right: 5px; font-size: 0.85em; color: var(--accent-red); }
 .card .cardNameSmall { margin-top: 0.8em; font-weight: bold; }
 
@@ -293,6 +294,9 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
 .rouletteNumber.spinning { animation: roulette-pulse 0.15s linear infinite; }
 .rouletteNumber.landed { border-color: #fff; box-shadow: 0 0 30px rgba(255, 255, 255, 0.7); }
 .rouletteVs { font-size: 1.4em; color: var(--accent-red); font-weight: bold; }
+.rouletteDelta { font-size: 0.9em; margin-top: 0.3em; color: var(--text-dim); min-height: 1.2em; }
+.rouletteDelta.plus { color: #7fd97f; }
+.rouletteDelta.minus { color: var(--accent-red); }
 @keyframes roulette-pulse { 0% { transform: scale(1); } 50% { transform: scale(1.06); } 100% { transform: scale(1); } }
 
 .trialCandidates { display: flex; flex-wrap: wrap; gap: 0.8em; padding: 1em 0; justify-content: center; }
@@ -343,6 +347,11 @@ input:disabled, select:disabled { opacity: 0.4; cursor: not-allowed; }
   margin: 1em 0 0.4em; padding-top: 0.6em; border-top: 1px solid var(--border-gold);
   color: var(--accent-gold); font-weight: bold; font-size: 0.95em;
 }
+.chaosTableWrap { margin-top: 0.5em; }
+.chaosTable { width: 100%; border-collapse: collapse; font-size: 0.8em; }
+.chaosTable th, .chaosTable td { border: 1px solid #4a3766; padding: 0.4em 0.5em; text-align: left; vertical-align: top; }
+.chaosTable th { background: #2c1e46; color: var(--accent-gold); }
+.chaosTable td { color: var(--text-main); }
 
 .startGameHint { font-size: 0.8em; color: var(--text-dim); text-align: center; margin-top: -0.4em; }
 
