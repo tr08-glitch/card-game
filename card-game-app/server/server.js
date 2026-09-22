@@ -17,6 +17,8 @@ const {
   applyLifeDelta,
   resolveDivinePunishment,
   resolveGamble,
+  CARD_DEFS,
+  makeInstance,
 } = require('./cards');
 
 const app = express();
@@ -52,8 +54,10 @@ function createRoom(hostSocketId, hostName, hostIcon) {
     deck: [],
     settings: {
       mode: 'classic', // 'classic' | 'alpha'
+      winMode: 'default', // 'default' | 'turnLimit' | 'suddenDeath'
       turnLimitEnabled: false,
       turnLimit: 20,
+      suddenDeathTime: 20, // サドンデス制: これを超えたターンでサドンデスモードに突入
       chatEnabled: true,
       showEnemyLife: true,
       showEnemyMana: true,
@@ -69,6 +73,7 @@ function createRoom(hostSocketId, hostName, hostIcon) {
     winnerId: null,
     turnCount: 0,
     bannedIds: new Set(), // 退室させられたプレイヤーのsocket.id(このルームが解散されるまで再参加不可)
+    suddenDeathActive: false,
     pendingSearchReturn: null, // 探索: 戻すカードの選択待ちのプレイヤーid
     pendingTrial: null, // 裁判: 投票待ちの情報 { actingId, candidateIds, votes }
   };
@@ -99,6 +104,7 @@ function newPlayer(id, name, icon) {
     alphaCards: [],
     turnDrawnCardId: null,
     isAI: false,
+    regenUsed: false,
   };
 }
 
@@ -132,6 +138,7 @@ function resetPlayersForNewGame(room) {
   room.blackCardUsage = {};
   room.pendingSearchReturn = null;
   room.pendingTrial = null;
+  room.suddenDeathActive = false;
   const initLife = (room.settings && room.settings.initialLife) || DEFAULT_INITIAL_LIFE;
   for (const id of room.order) {
     const p = room.players[id];
@@ -148,6 +155,7 @@ function resetPlayersForNewGame(room) {
     p.pendingRevealCardId = null;
     p.randomizedTurnsLeft = 0;
     p.alphaCards = [];
+    p.regenUsed = false;
     p.turnDrawnCardId = null;
   }
   room.pendingAlphaPicks = null;
@@ -238,6 +246,7 @@ function buildStateFor(room, viewerId) {
     winnerId: room.winnerId,
     deckCount: room.deck.length,
     turnCount: room.turnCount,
+    suddenDeathActive: !!room.suddenDeathActive,
     turnLimitEnabled: room.settings.turnLimitEnabled,
     turnLimit: room.settings.turnLimit,
     currentPlayerId: room.started ? currentPlayerId(room) : null,
@@ -314,15 +323,51 @@ function checkGameEnd(room) {
     room.winnerId = alive[0] ? alive[0].id : null;
     return true;
   }
+  const winMode = (room.settings && room.settings.winMode) || 'default';
+  if (winMode === 'suddenDeath') {
+    // サドンデス制: 山札切れ・ターン数では終了しない。最後の1人になるまで続く
+    return false;
+  }
   if (room.deck.length === 0) {
     endByHighestLife(room);
     return true;
   }
-  if (room.settings.turnLimitEnabled && room.turnCount >= room.settings.turnLimit) {
+  if (winMode === 'turnLimit' && room.settings.turnLimitEnabled && room.turnCount >= room.settings.turnLimit) {
     endByHighestLife(room);
     return true;
   }
   return false;
+}
+
+function maybeTriggerSuddenDeath(room) {
+  const winMode = (room.settings && room.settings.winMode) || 'default';
+  if (winMode !== 'suddenDeath' || room.suddenDeathActive) return;
+  const threshold = (room.settings && room.settings.suddenDeathTime) || 20;
+  if (room.turnCount <= threshold) return;
+
+  room.suddenDeathActive = true;
+
+  // 山札に黒いカードを初期設定と同じ枚数分追加する(通常の黒いカードNo.1〜13が対象。シークレットは対象外)
+  const added = [];
+  for (let no = 1; no <= 13; no++) {
+    const def = CARD_DEFS[no];
+    if (!def || !def.isBlack) continue;
+    const count = (room.cardCounts && room.cardCounts[no] != null) ? room.cardCounts[no] : def.defaultCount;
+    for (let i = 0; i < count; i++) {
+      added.push(makeInstance(no));
+    }
+  }
+  room.deck.push(...added);
+  shuffle(room.deck);
+
+  // 全員の最大ライフ(初期ライフ)を半減する。その時点の現在ライフは減らさない
+  for (const id of room.order) {
+    const p = room.players[id];
+    if (!p) continue;
+    p.initialLife = Math.max(1, Math.floor(p.initialLife / 2));
+  }
+
+  pushLog(room, [`サドンデスモードに突入した!全員の最大ライフが半減し、山札に黒いカードが追加された(${added.length}枚)`]);
 }
 
 function endByHighestLife(room) {
@@ -384,6 +429,7 @@ function advanceTurn(room, io) {
     tries <= room.order.length
   );
   room.turnCount++;
+  maybeTriggerSuddenDeath(room);
 
   const p = room.players[currentPlayerId(room)];
   // ターン開始処理: シールド解除(自分のターンが来たので前回の防御は失効), マナ回復, 1枚ドロー

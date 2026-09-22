@@ -18,6 +18,8 @@ const ALPHA_CARDS = {
   apostle: { name: '使徒', lifeBonus: 3, exclusiveCard: 'divinePunishment', blackUseLifeLoss: 4 },
   curse: { name: '呪詛', lifeBonus: 3, endTurnRandomEnemyDamage: 2, damageTakenBonus: 1 },
   gambler: { name: '賭酔', rouletteBonus: 1, noManaRegen: true, turnStartGamble: true },
+  regen: { name: '再生', damageBonus: -1, reviveOnce: true },
+  karakuri: { name: '絡繰', lifeBonus: -3, manaAsLifeBuffer: true },
 };
 
 const EXCLUSIVE_CARD_INFO = {
@@ -190,8 +192,38 @@ function dealDamage(room, targetId, amount, log, attackerId, _reflected, fixed) 
     log.push(`${p.name} は防御中のため効果を受けなかった`);
     return 0;
   }
-  p.life -= dmg;
+
+  let manaSpentByKarakuri = 0;
+  let willBeLifeWithoutSave = p.life - dmg;
+  const wasFatalBeforeBuffer = willBeLifeWithoutSave < 0;
+  let survivedByKarakuri = false;
+  if (wasFatalBeforeBuffer && alphaSum(p, 'manaAsLifeBuffer') > 0) {
+    // 絡繰: 2マナを1ライフとして代用し、致命的な分だけマナで肩代わりする
+    const shortfall = -willBeLifeWithoutSave;
+    const maxCoverableByMana = Math.floor(p.mana / 2);
+    const covered = Math.min(shortfall, maxCoverableByMana);
+    if (covered > 0) {
+      manaSpentByKarakuri = covered * 2;
+      p.mana -= manaSpentByKarakuri;
+      willBeLifeWithoutSave += covered;
+      log.push(`${p.name} は絡繰の効果でマナ${manaSpentByKarakuri}を代わりに消費した(残りマナ ${p.mana})`);
+    }
+    if (willBeLifeWithoutSave >= 0) survivedByKarakuri = true; // 致命傷分をマナで完全に肩代わりできた
+  }
+
+  p.life = willBeLifeWithoutSave;
   log.push(`${p.name} は ${dmg} ダメージを受けた(残りライフ ${Math.max(p.life, 0)})`);
+  if (p.life <= 0 && survivedByKarakuri) {
+    p.life = 0; // 絡繰でちょうど持ちこたえた場合は生存扱い(死亡判定に進まない)
+    return dmg;
+  }
+  if (p.life <= 0 && alphaSum(p, 'reviveOnce') > 0 && !p.regenUsed) {
+    // 再生: ライフが0以下になった時、一度だけ初期ライフまで戻って生き延びる
+    p.regenUsed = true;
+    p.life = p.initialLife;
+    log.push(`${p.name} は再生の効果でライフが初期値まで回復した(現在 ${p.life})`);
+    return dmg;
+  }
   if (p.life <= 0) {
     p.life = 0;
     p.alive = false;
@@ -544,6 +576,7 @@ function resolveTrialVotes(room, votes, actingId) {
 
 module.exports = {
   CARD_DEFS,
+  makeInstance,
   ALPHA_CARDS,
   EXCLUSIVE_CARD_INFO,
   alphaSum,
