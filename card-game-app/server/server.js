@@ -38,14 +38,14 @@ function makeRoomId() {
   return id;
 }
 
-function createRoom(hostSocketId, hostName) {
+function createRoom(hostSocketId, hostName, hostIcon) {
   const roomId = makeRoomId();
   const playerId = hostSocketId;
   const room = {
     roomId,
     hostId: playerId,
     players: {
-      [playerId]: newPlayer(playerId, hostName),
+      [playerId]: newPlayer(playerId, hostName, hostIcon),
     },
     order: [playerId],
     turnIndex: 0,
@@ -76,10 +76,13 @@ function createRoom(hostSocketId, hostName) {
   return room;
 }
 
-function newPlayer(id, name) {
+const PLAYER_ICONS = ['icon_star', 'icon_moon', 'icon_flame', 'icon_leaf', 'icon_skull', 'icon_crystal', 'icon_eye', 'icon_wolf', 'icon_crown', 'icon_wave'];
+
+function newPlayer(id, name, icon) {
   return {
     id,
     name: (name || 'プレイヤー').slice(0, 15),
+    icon: PLAYER_ICONS.includes(icon) ? icon : PLAYER_ICONS[0],
     life: DEFAULT_INITIAL_LIFE,
     initialLife: DEFAULT_INITIAL_LIFE,
     mana: 0,
@@ -95,7 +98,18 @@ function newPlayer(id, name) {
     pendingRevealCardId: null,
     alphaCards: [],
     turnDrawnCardId: null,
+    isAI: false,
   };
+}
+
+let aiIdCounter = 0;
+function createAiPlayer(index) {
+  const id = `ai-${Date.now()}-${aiIdCounter++}`;
+  const aiIconPool = ['icon_skull', 'icon_wolf', 'icon_eye', 'icon_flame', 'icon_crystal'];
+  const p = newPlayer(id, `AI-${index}`, aiIconPool[(index - 1) % aiIconPool.length]);
+  p.isAI = true;
+  p.connected = true; // AIは常に接続扱い(切断・剪定の対象にしない)
+  return p;
 }
 
 function pruneDisconnectedPlayers(room) {
@@ -199,6 +213,7 @@ function publicPlayerView(room, player, viewerId) {
   return {
     id: player.id,
     name: player.name,
+    icon: player.icon,
     life: showLife ? player.life : null,
     mana: showMana ? player.mana : null,
     handCount: showHandCount ? player.hand.length : null,
@@ -398,30 +413,308 @@ function advanceTurn(room, io) {
   if (alphaSum(p, 'turnStartGamble') > 0 && p.alive) {
     // 賭酔: 自分のターンの初めに自動で「博打」を行う
     const gambleLog = [];
-    resolveGamble(room, p.id, gambleLog);
+    const gambleExtra = resolveGamble(room, p.id, gambleLog);
     pushLog(room, gambleLog);
+    if (gambleExtra) io.to(room.roomId).emit('gambleRouletteResult', gambleExtra);
   }
   broadcastState(room);
   if (checkGameEnd(room)) broadcastState(room);
+  if (p.isAI && p.alive && !room.ended) {
+    const roomId = room.roomId;
+    setTimeout(() => {
+      const liveRoom = rooms[roomId];
+      if (liveRoom) runAiTurn(liveRoom, p.id, io);
+    }, 900 + Math.floor(Math.random() * 700));
+  }
+}
+
+function performPlayCard(room, playerId, payload, io) {
+  const actor = room.players[playerId];
+  if (!actor) return;
+  let { instanceId, faceUp, targetId, chosenCost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId } = payload;
+  let randomizedThisTurn = false;
+
+  if (actor.randomizedTurnsLeft > 0 && actor.hand.length > 0) {
+    // 魘の効果: 表裏・出すカード・対象・コストを強制的にランダム化する
+    const randCard = actor.hand[Math.floor(Math.random() * actor.hand.length)];
+    instanceId = randCard.instanceId;
+    faceUp = Math.random() < 0.5;
+    const pool = alivePlayers(room);
+    targetId = pool.length ? pool[Math.floor(Math.random() * pool.length)].id : undefined;
+    chosenCost = Math.floor(Math.random() * 7) + 1;
+    returnInstanceId = undefined;
+    actor.randomizedTurnsLeft -= 1;
+    randomizedThisTurn = true;
+  }
+
+  const idx = actor.hand.findIndex((c) => c.instanceId === instanceId);
+  if (idx === -1) return;
+  const [card] = actor.hand.splice(idx, 1);
+  const randomNotice = randomizedThisTurn ? [`${actor.name} は魘の影響で行動がランダムになった`] : [];
+
+  if (!faceUp) {
+    // 裏向き
+    actor.field.push({ instanceId: card.instanceId, no: card.no, name: card.name, faceUp: false });
+    actor.life = Math.min(actor.life + 1, 999);
+    const faceDownLog = [];
+    if (actor.alphaCards.includes('corruption')) {
+      applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(裏向き使用)', faceDownLog);
+    }
+    pushLog(room, [...randomNotice, `${actor.name} は裏向きでカードを出した`, ...faceDownLog]);
+    advanceTurn(room, io);
+    return;
+  }
+
+  // 表向き
+  let cost = card.baseCost;
+  if (card.no === 7) cost = Math.min(7, Math.max(1, chosenCost || 1));
+  if (card.no === 13) cost = actor.mana; // 混沌は全マナ(翼のコスト増加はここには適用しない)
+  if (card.no === 12) {
+    const used = room.blackCardUsage[playerId] || 0;
+    cost = Math.ceil(used * 1.5);
+  }
+  if (card.no !== 13 && card.no !== 10) cost += alphaSum(actor, 'costPenalty'); // 翼: 全カードの最終コスト+1(反逆は発動時に消費マナで正体がバレないよう常にコスト0のまま)
+
+  const isStealth = card.no === 10; // 反逆: 発動成功時は場では裏向きに見える
+  const fieldEntry = { instanceId: card.instanceId, no: card.no, name: card.name, faceUp: true, misfired: false };
+
+  if (cost == null) cost = 0;
+  const revoltInsufficient = card.no === 10 && actor.mana < 3; // 反逆: コストは0だが、マナ3未満だと不発になる
+  if ((cost > 0 && actor.mana < cost) || revoltInsufficient) {
+    fieldEntry.misfired = true;
+    actor.field.push(fieldEntry);
+    pushLog(room, [...randomNotice, `${actor.name} は「${card.name}」を表向きで出したが、マナ不足で不発だった`]);
+    advanceTurn(room, io);
+    return;
+  }
+
+  actor.mana -= cost;
+  if (isStealth) fieldEntry.stealth = true;
+  actor.field.push(fieldEntry);
+  const alphaCardLog = [];
+  if (card.isBlack) {
+    room.blackCardUsage[playerId] = (room.blackCardUsage[playerId] || 0) + 1;
+    if (actor.alphaCards.includes('corruption')) {
+      applyLifeDelta(room, playerId, alphaSum(actor, 'blackUseLifeGain'), '堕落(黒いカード使用)', alphaCardLog, true);
+    }
+    if (actor.alphaCards.includes('apostle')) {
+      applyLifeDelta(room, playerId, -alphaSum(actor, 'blackUseLifeLoss'), '使徒(闇のカード使用)', alphaCardLog);
+    }
+  } else if (actor.alphaCards.includes('corruption')) {
+    applyLifeDelta(room, playerId, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(黒いカード以外を使用)', alphaCardLog);
+  }
+  const result = resolveEffect(room, playerId, card, { targetId, chosenCost: cost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId });
+  if (result.extra && result.extra.type === 'roulette') {
+    io.to(room.roomId).emit('rouletteResult', result.extra);
+  }
+  if (isStealth) {
+    pushLog(room, [...randomNotice, `${actor.name} は裏向きでカードを出した`, ...alphaCardLog]);
+  } else {
+    pushLog(room, [...randomNotice, `${actor.name} は「${card.name}」を発動した(コスト${cost})`, ...alphaCardLog, ...result.log]);
+  }
+
+  if (result.extra && result.extra.type === 'search_pending') {
+    // 探索: 引いた後、戻すカードを選ぶまでターンを進めない
+    room.pendingSearchReturn = playerId;
+    const sock = io.sockets.sockets.get(playerId);
+    if (sock) sock.emit('searchReturnPrompt', { hand: actor.hand });
+    broadcastState(room);
+    if (actor.isAI) scheduleAiSearchReturn(room, playerId, io);
+    return;
+  }
+
+  if (result.extra && result.extra.type === 'trial_pending') {
+    // 裁判: 全員の投票が揃うまでターンを進めない
+    room.pendingTrial = { actingId: playerId, candidateIds: result.extra.candidateIds, votes: {} };
+    const candidates = result.extra.candidateIds.map((id) => ({
+      id,
+      name: room.players[id].name,
+      life: room.players[id].life,
+      mana: room.players[id].mana,
+    }));
+    for (const id of result.extra.candidateIds) {
+      const sock = io.sockets.sockets.get(id);
+      if (sock) sock.emit('trialStart', { candidates, actingName: actor.name });
+    }
+    broadcastState(room);
+    for (const id of result.extra.candidateIds) {
+      if (room.players[id] && room.players[id].isAI) scheduleAiTrialVote(room, id, io);
+    }
+    return;
+  }
+
+  advanceTurn(room, io);
+}
+
+function performSearchReturn(room, playerId, returnInstanceId, io) {
+  if (!room || room.pendingSearchReturn !== playerId) return;
+  const actor = room.players[playerId];
+  const idx = actor.hand.findIndex((c) => c.instanceId === returnInstanceId);
+  if (idx === -1) return;
+  const [ret] = actor.hand.splice(idx, 1);
+  room.deck.push(ret);
+  shuffle(room.deck);
+  room.pendingSearchReturn = null;
+  pushLog(room, [`${actor.name} は手札を1枚山札に戻した`]);
+  advanceTurn(room, io);
+  broadcastState(room);
+}
+
+function performCastTrialVote(room, playerId, targetId, io) {
+  if (!room || !room.pendingTrial) return;
+  const trial = room.pendingTrial;
+  if (!trial.candidateIds.includes(playerId)) return;
+  if (trial.votes[playerId] != null) return; // 二重投票は無視
+  if (!targetId || !room.players[targetId]) return;
+  trial.votes[playerId] = targetId;
+  const votedCount = Object.keys(trial.votes).length;
+  io.to(room.roomId).emit('trialVoteUpdate', { votedCount, totalVoters: trial.candidateIds.length });
+
+  if (votedCount >= trial.candidateIds.length) {
+    const resultLog = resolveTrialVotes(room, trial.votes, trial.actingId);
+    pushLog(room, resultLog);
+    room.pendingTrial = null;
+    io.to(room.roomId).emit('trialEnd');
+    advanceTurn(room, io);
+    broadcastState(room);
+  }
+}
+
+// ========== AI対戦ロジック ==========
+const AI_ATTACK_NOS = new Set([3, 4, 7, 8, 13]);
+const AI_HEAL_NOS = new Set([2, 9]);
+const AI_DEFEND_NOS = new Set([5]);
+
+function scoreAiCard(card, self, opponents) {
+  let score = Math.random() * 3; // 常に多少のランダム性を持たせる
+  if (AI_ATTACK_NOS.has(card.no)) {
+    score += 3;
+    if (opponents.some((o) => o.life <= 4)) score += 4; // トドメを狙えそうなら優先
+  }
+  if (AI_HEAL_NOS.has(card.no) && self.life <= 5) score += 5;
+  if (AI_DEFEND_NOS.has(card.no) && self.life <= 6) score += 3;
+  if (card.no === 6) score -= 2; // 取引は複雑なので少し避ける傾向
+  return score;
+}
+
+function decideAiAction(room, p, difficulty) {
+  const d = Math.max(1, Math.min(10, difficulty || 5));
+  const smartChance = 0.1 + d * 0.08; // 難易度1で0.18、10で0.9
+  const hand = p.hand;
+  const opponents = alivePlayers(room).filter((x) => x.id !== p.id);
+
+  let card;
+  if (hand.length > 1 && Math.random() < smartChance) {
+    const scored = hand.map((c) => ({ c, score: scoreAiCard(c, p, opponents) }));
+    scored.sort((a, b) => b.score - a.score);
+    card = scored[0].c;
+  } else {
+    card = hand[Math.floor(Math.random() * hand.length)];
+  }
+
+  // 取引(No.6)は専用の対話フローが必要なため、AIは選んでしまった場合は裏向きで処理する
+  if (card.no === 6) {
+    return { instanceId: card.instanceId, faceUp: false };
+  }
+
+  const baseCost = card.baseCost || 0;
+  let faceUp;
+  if (card.no === 13) {
+    faceUp = p.mana >= 3 && Math.random() < smartChance;
+  } else if (baseCost > 0 && p.mana < baseCost) {
+    faceUp = Math.random() < 0.15; // マナが足りないなら基本裏向き
+  } else {
+    faceUp = Math.random() < 0.35 + smartChance * 0.5;
+  }
+
+  let targetId;
+  if (opponents.length > 0) {
+    if (Math.random() < smartChance) {
+      targetId = [...opponents].sort((a, b) => a.life - b.life)[0].id;
+    } else {
+      targetId = opponents[Math.floor(Math.random() * opponents.length)].id;
+    }
+  }
+
+  let chosenCost;
+  if (card.no === 7) {
+    const maxAffordable = Math.max(1, Math.min(7, p.mana || 1));
+    chosenCost = Math.max(1, Math.round(maxAffordable * (0.4 + smartChance * 0.5)));
+  }
+
+  return { instanceId: card.instanceId, faceUp, targetId, chosenCost };
+}
+
+function runAiTurn(room, aiId, io) {
+  if (!room || room.ended || currentPlayerId(room) !== aiId) return;
+  const p = room.players[aiId];
+  if (!p || !p.alive || !p.isAI || p.hand.length === 0) return;
+  const decision = decideAiAction(room, p, room.aiDifficulty);
+  performPlayCard(room, aiId, decision, io);
+}
+
+function scheduleAiSearchReturn(room, aiId, io) {
+  const roomId = room.roomId;
+  setTimeout(() => {
+    const liveRoom = rooms[roomId];
+    if (!liveRoom || liveRoom.pendingSearchReturn !== aiId) return;
+    const p = liveRoom.players[aiId];
+    if (!p || p.hand.length === 0) return;
+    const pick = p.hand[Math.floor(Math.random() * p.hand.length)];
+    performSearchReturn(liveRoom, aiId, pick.instanceId, io);
+  }, 600 + Math.floor(Math.random() * 500));
+}
+
+function scheduleAiTrialVote(room, aiId, io) {
+  const roomId = room.roomId;
+  setTimeout(() => {
+    const liveRoom = rooms[roomId];
+    if (!liveRoom || !liveRoom.pendingTrial) return;
+    const trial = liveRoom.pendingTrial;
+    if (!trial.candidateIds.includes(aiId) || trial.votes[aiId] != null) return;
+    const others = trial.candidateIds
+      .map((id) => liveRoom.players[id])
+      .filter((pl) => pl && pl.id !== aiId);
+    if (others.length === 0) return;
+    const target = [...others].sort((a, b) => a.life - b.life)[0]; // 弱った相手に入れる傾向
+    performCastTrialVote(liveRoom, aiId, target.id, io);
+  }, 500 + Math.floor(Math.random() * 500));
 }
 
 io.on('connection', (socket) => {
-  socket.on('createRoom', ({ name }, cb) => {
-    const room = createRoom(socket.id, name);
+  socket.on('createRoom', ({ name, icon }, cb) => {
+    const room = createRoom(socket.id, name, icon);
     socket.join(room.roomId);
     socket.data.roomId = room.roomId;
     cb && cb({ ok: true, roomId: room.roomId, playerId: socket.id });
     broadcastState(room);
   });
 
-  socket.on('joinRoom', ({ roomId, name }, cb) => {
+  socket.on('startAiBattle', ({ name, playerCount, difficulty, icon }, cb) => {
+    const room = createRoom(socket.id, name, icon);
+    socket.join(room.roomId);
+    socket.data.roomId = room.roomId;
+    room.isAiRoom = true;
+    room.aiDifficulty = Math.max(1, Math.min(10, parseInt(difficulty, 10) || 5));
+    const total = Math.max(2, Math.min(6, parseInt(playerCount, 10) || 2));
+    for (let i = 1; i < total; i++) {
+      const ai = createAiPlayer(i);
+      room.players[ai.id] = ai;
+      room.order.push(ai.id);
+    }
+    cb && cb({ ok: true, roomId: room.roomId, playerId: socket.id });
+    resetPlayersForNewGame(room);
+    beginGame(room, io);
+  });
+
+  socket.on('joinRoom', ({ roomId, name, icon }, cb) => {
     const room = rooms[roomId];
     if (!room) return cb && cb({ ok: false, error: 'ルームが見つかりません' });
     if (room.bannedIds && room.bannedIds.has(socket.id)) {
       return cb && cb({ ok: false, error: 'このルームへの参加は許可されていません' });
     }
     if (!room.started && room.order.length >= 6) return cb && cb({ ok: false, error: 'ルームが満員です' });
-    const player = newPlayer(socket.id, name);
+    const player = newPlayer(socket.id, name, icon);
     if (room.started) {
       // ゲーム中に参加した場合は観戦としてルームに加える(進行中の対戦には参加しない)
       player.spectator = true;
@@ -580,117 +873,9 @@ io.on('connection', (socket) => {
     if (!room || !room.started || room.ended) return;
     if (room.pendingSearchReturn || room.pendingTrial) return; // 探索の戻し先選択・裁判の投票中は他の操作を受け付けない
     if (currentPlayerId(room) !== socket.id) return;
-    const actor = room.players[socket.id];
-    let { instanceId, faceUp, targetId, chosenCost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId } = payload;
-    let randomizedThisTurn = false;
-
-    if (actor.randomizedTurnsLeft > 0 && actor.hand.length > 0) {
-      // 魘の効果: 表裏・出すカード・対象・コストを強制的にランダム化する
-      const randCard = actor.hand[Math.floor(Math.random() * actor.hand.length)];
-      instanceId = randCard.instanceId;
-      faceUp = Math.random() < 0.5;
-      const pool = alivePlayers(room);
-      targetId = pool.length ? pool[Math.floor(Math.random() * pool.length)].id : undefined;
-      chosenCost = Math.floor(Math.random() * 7) + 1;
-      returnInstanceId = undefined;
-      actor.randomizedTurnsLeft -= 1;
-      randomizedThisTurn = true;
-    }
-
-    const idx = actor.hand.findIndex((c) => c.instanceId === instanceId);
-    if (idx === -1) return;
-    const [card] = actor.hand.splice(idx, 1);
-    const randomNotice = randomizedThisTurn ? [`${actor.name} は魘の影響で行動がランダムになった`] : [];
-
-    if (!faceUp) {
-      // 裏向き
-      actor.field.push({ instanceId: card.instanceId, no: card.no, name: card.name, faceUp: false });
-      actor.life = Math.min(actor.life + 1, 999);
-      const faceDownLog = [];
-      if (actor.alphaCards.includes('corruption')) {
-        applyLifeDelta(room, socket.id, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(裏向き使用)', faceDownLog);
-      }
-      pushLog(room, [...randomNotice, `${actor.name} は裏向きでカードを出した`, ...faceDownLog]);
-      advanceTurn(room, io);
-      return;
-    }
-
-    // 表向き
-    let cost = card.baseCost;
-    if (card.no === 7) cost = Math.min(7, Math.max(1, chosenCost || 1));
-    if (card.no === 13) cost = actor.mana; // 混沌は全マナ(翼のコスト増加はここには適用しない)
-    if (card.no === 12) {
-      const used = room.blackCardUsage[socket.id] || 0;
-      cost = Math.ceil(used * 1.5);
-    }
-    if (card.no !== 13 && card.no !== 10) cost += alphaSum(actor, 'costPenalty'); // 翼: 全カードの最終コスト+1(反逆は発動時に消費マナで正体がバレないよう常にコスト0のまま)
-
-    const isStealth = card.no === 10; // 反逆: 発動成功時は場では裏向きに見える
-    const fieldEntry = { instanceId: card.instanceId, no: card.no, name: card.name, faceUp: true, misfired: false };
-
-    if (cost == null) cost = 0;
-    const revoltInsufficient = card.no === 10 && actor.mana < 3; // 反逆: コストは0だが、マナ3未満だと不発になる
-    if ((cost > 0 && actor.mana < cost) || revoltInsufficient) {
-      fieldEntry.misfired = true;
-      actor.field.push(fieldEntry);
-      pushLog(room, [...randomNotice, `${actor.name} は「${card.name}」を表向きで出したが、マナ不足で不発だった`]);
-      advanceTurn(room, io);
-      return;
-    }
-
-    actor.mana -= cost;
-    if (isStealth) fieldEntry.stealth = true;
-    actor.field.push(fieldEntry);
-    const alphaCardLog = [];
-    if (card.isBlack) {
-      room.blackCardUsage[socket.id] = (room.blackCardUsage[socket.id] || 0) + 1;
-      if (actor.alphaCards.includes('corruption')) {
-        applyLifeDelta(room, socket.id, alphaSum(actor, 'blackUseLifeGain'), '堕落(黒いカード使用)', alphaCardLog, true);
-      }
-      if (actor.alphaCards.includes('apostle')) {
-        applyLifeDelta(room, socket.id, -alphaSum(actor, 'blackUseLifeLoss'), '使徒(闇のカード使用)', alphaCardLog);
-      }
-    } else if (actor.alphaCards.includes('corruption')) {
-      applyLifeDelta(room, socket.id, -alphaSum(actor, 'otherUseLifeLoss'), '堕落(黒いカード以外を使用)', alphaCardLog);
-    }
-    const result = resolveEffect(room, socket.id, card, { targetId, chosenCost: cost, returnInstanceId, tradeGiveInstanceId, tradeTakeInstanceId });
-    if (result.extra && result.extra.type === 'roulette') {
-      io.to(room.roomId).emit('rouletteResult', result.extra);
-    }
-    if (isStealth) {
-      pushLog(room, [...randomNotice, `${actor.name} は裏向きでカードを出した`, ...alphaCardLog]);
-    } else {
-      pushLog(room, [...randomNotice, `${actor.name} は「${card.name}」を発動した(コスト${cost})`, ...alphaCardLog, ...result.log]);
-    }
-
-    if (result.extra && result.extra.type === 'search_pending') {
-      // 探索: 引いた後、戻すカードを選ぶまでターンを進めない
-      room.pendingSearchReturn = socket.id;
-      const sock = io.sockets.sockets.get(socket.id);
-      if (sock) sock.emit('searchReturnPrompt', { hand: actor.hand });
-      broadcastState(room);
-      return;
-    }
-
-    if (result.extra && result.extra.type === 'trial_pending') {
-      // 裁判: 全員の投票が揃うまでターンを進めない
-      room.pendingTrial = { actingId: socket.id, candidateIds: result.extra.candidateIds, votes: {} };
-      const candidates = result.extra.candidateIds.map((id) => ({
-        id,
-        name: room.players[id].name,
-        life: room.players[id].life,
-        mana: room.players[id].mana,
-      }));
-      for (const id of result.extra.candidateIds) {
-        const sock = io.sockets.sockets.get(id);
-        if (sock) sock.emit('trialStart', { candidates, actingName: actor.name });
-      }
-      broadcastState(room);
-      return;
-    }
-
-    advanceTurn(room, io);
+    performPlayCard(room, socket.id, payload, io);
   });
+
 
   socket.on('playExclusiveCard', ({ exclusiveKey, targetId }) => {
     const room = rooms[socket.data.roomId];
@@ -738,38 +923,12 @@ io.on('connection', (socket) => {
 
   socket.on('searchReturn', ({ returnInstanceId }) => {
     const room = rooms[socket.data.roomId];
-    if (!room || room.pendingSearchReturn !== socket.id) return;
-    const actor = room.players[socket.id];
-    const idx = actor.hand.findIndex((c) => c.instanceId === returnInstanceId);
-    if (idx === -1) return;
-    const [ret] = actor.hand.splice(idx, 1);
-    room.deck.push(ret);
-    shuffle(room.deck);
-    room.pendingSearchReturn = null;
-    pushLog(room, [`${actor.name} は手札を1枚山札に戻した`]);
-    advanceTurn(room, io);
-    broadcastState(room);
+    performSearchReturn(room, socket.id, returnInstanceId, io);
   });
 
   socket.on('castTrialVote', ({ targetId }) => {
     const room = rooms[socket.data.roomId];
-    if (!room || !room.pendingTrial) return;
-    const trial = room.pendingTrial;
-    if (!trial.candidateIds.includes(socket.id)) return;
-    if (trial.votes[socket.id] != null) return; // 二重投票は無視
-    if (!targetId || !room.players[targetId]) return;
-    trial.votes[socket.id] = targetId;
-    const votedCount = Object.keys(trial.votes).length;
-    io.to(room.roomId).emit('trialVoteUpdate', { votedCount, totalVoters: trial.candidateIds.length });
-
-    if (votedCount >= trial.candidateIds.length) {
-      const resultLog = resolveTrialVotes(room, trial.votes, trial.actingId);
-      pushLog(room, resultLog);
-      room.pendingTrial = null;
-      io.to(room.roomId).emit('trialEnd');
-      advanceTurn(room, io);
-      broadcastState(room);
-    }
+    performCastTrialVote(room, socket.id, targetId, io);
   });
 
   socket.on('surrender', () => {
@@ -832,7 +991,8 @@ io.on('connection', (socket) => {
         if (room.hostId === socket.id && room.order.length > 0) room.hostId = room.order[0];
       }
     }
-    if (room.order.filter((id) => room.players[id] && room.players[id].connected).length === 0) {
+    const remainingHumans = room.order.filter((id) => room.players[id] && room.players[id].connected && !room.players[id].isAI);
+    if (remainingHumans.length === 0) {
       delete rooms[roomId];
       return;
     }
