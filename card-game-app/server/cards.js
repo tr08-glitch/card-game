@@ -98,7 +98,7 @@ const CARD_DEFS = {
   8:  { name: '戦争', baseCost: 4, isBlack: true,  isSecret: false, defaultCount: 3 },
   9:  { name: '輪廻', baseCost: 5, isBlack: false, isSecret: false, defaultCount: 2 },
   10: { name: '反逆', baseCost: 0, isBlack: false, isSecret: false, defaultCount: 2 },
-  11: { name: '深淵', baseCost: 6, isBlack: false, isSecret: false, defaultCount: 1 },
+  11: { name: '深淵', baseCost: 6, isBlack: true, isSecret: false, defaultCount: 1 },
   12: { name: '浄化', baseCost: null, isBlack: false, isSecret: false, defaultCount: 1 }, // コストは使用済み黒いカード枚数×1.5(切り上げ)
   13: { name: '混沌', baseCost: null, isBlack: true,  isSecret: false, defaultCount: 1 }, // コストは全マナ
   0.1: { no: 0, name: '破滅', baseCost: 0, isBlack: true,  isSecret: true, defaultCount: 1, secretKey: 'destruction' },
@@ -368,6 +368,7 @@ function resolveEffect(room, actingId, card, opts = {}) {
     case 10: { // 反逆(見た目は裏向きカードとして扱うため、効果ログは出さない)
       actor.reflectUntilTurnStart = true;
       actor.pendingRevealCardId = card.instanceId; // 次の自分のターン開始時に公開・マナ3消費
+      actor.life = Math.min(actor.life + 1, 999); // 裏向きに出した状況に近づけるため、ライフ+1(初期ライフを超えてもよい)
       break;
     }
     case 11: { // 深淵
@@ -482,9 +483,9 @@ function resolveDivinePunishment(room, actingId, targetId, log) {
 
 function resolveGamble(room, actingId, log) {
   const actor = room.players[actingId];
-  if (!actor) return;
+  if (!actor) return null;
   const players = alivePlayers(room);
-  if (players.length === 0) return;
+  if (players.length === 0) return null;
   log.push(`${actor.name} は「博打」を発動した`);
   const rolls = {};
   for (const p of players) {
@@ -511,6 +512,11 @@ function resolveGamble(room, actingId, log) {
     p.mana += delta; // 博打の効果ではマナが負の値になることもある
     log.push(`${p.name} のマナが ${delta > 0 ? `${delta}増加` : `${-delta}減少`}した(現在 ${p.mana})`);
   }
+  return {
+    type: 'gambleRoulette',
+    actorId: actingId,
+    players: players.map((p) => ({ id: p.id, name: p.name, roll: rolls[p.id], delta: finalDeltas[p.id] })),
+  };
 }
 
 function resolveTrialVotes(room, votes, actingId) {
